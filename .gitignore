@@ -1,0 +1,6 @@
+#ignorar el directorio build
+/build/
+#archivos
+*.exe
+#archivos del sistema operativo
+.DS_Store
