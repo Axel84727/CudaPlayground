@@ -10,4 +10,5 @@ struct world
 
     world();
     world(const std::vector<body> &b, const vec2 &gravedad, float delta_time);
+    void update();
 };
