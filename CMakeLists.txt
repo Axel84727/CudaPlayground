@@ -5,7 +5,19 @@ project(CudaPlayground LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-add_executable(TEST1 src/main.cpp)
+
+set(SOURCE_FILES
+    src/main.cpp
+    src/vec2.cpp
+    src/body.cpp
+    src/world.cpp
+)
+
+add_executable(TEST1 ${SOURCE_FILES})
+
+target_include_directories(TEST1 PRIVATE 
+    ${CMAKE_SOURCE_DIR}/include
+)
 #CUDA
 #Habilita el compliador de CUDA (nvcc)
 #project(CudaPlayground LANGUAGES CXX CUDA)
