@@ -1,5 +1,4 @@
 // body(const vec2 &posicion, const vec2 &velocidad, const vec2 &aceleracion, float masa, float inv_mass, float radio);
-#include "vec2.hpp"
 #include "body.hpp"
 body::body(const vec2 &posicion,
            const vec2 &velocidad,

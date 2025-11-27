@@ -1,9 +1,8 @@
 #include <iostream>
 #include <vector>
-// Solo necesitamos incluir world.hpp, ya que incluye body.hpp y vec2.hpp
-#include "world.hpp"
 #include <random>
 #include <chrono>
+#include "world.hpp"
 // Función auxiliar para imprimir vec2
 void print_vec2(const vec2 &v)
 {

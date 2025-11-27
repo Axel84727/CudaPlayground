@@ -26,13 +26,13 @@ struct world
     std::vector<std::vector<body *>> grid;
     world();
     // limpiar el vector
-    void world::limpieza();
+    void limpieza();
     world(const std::vector<body> &b, const vec2 &gravedad, float delta_time);
     // ticks del mundo
-    void world::update();
+    void update();
     // repoblar el vector
-    void world::repoblar();
+    void repoblar();
     // conseguir el indice
-    int world::get_grid_index(const vec2 &posicion) const;
-    void world::broad_phase();
+    int get_grid_index(const vec2 &posicion) const;
+    std::vector<std::pair<body *, body *>> broad_phase();
 };
