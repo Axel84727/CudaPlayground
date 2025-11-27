@@ -11,7 +11,7 @@ A 2D physics engine built from scratch to learn C++ and CUDA.
 
 ## Current Status
 
-Work in Progress - Phase 2
+Work in Progress - Phase 4
 
 See [detailed roadmap](docs/roadmap.md) for full development plan.
 
