@@ -37,4 +37,5 @@ struct world
 
     bool check_collision(body *A, body *B);
     std::vector<std::pair<body *, body *>> broad_phase();
+    void step_physics();
 };

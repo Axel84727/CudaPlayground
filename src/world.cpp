@@ -5,6 +5,17 @@
 // world(std::vector<body> &b, const vec2 &gravedad, float delta_time);
 world::world() : bodies(), gravedad(), delta_time(0.0f) {}
 
+void world::step_physics()
+{
+    auto pairs = broad_phase();
+    for (auto &[A, B] : pairs)
+    {
+        if (check_collision(A, B))
+        {
+            // resolve_collision
+        }
+    }
+}
 world::world(const std::vector<body> &b_param, const vec2 &gravedad_param, float delta_time_param) : bodies(b_param), gravedad(gravedad_param), delta_time(delta_time_param)
 {
 
@@ -79,6 +90,7 @@ int world::get_grid_index(const vec2 &posicion) const
     return index;
 }
 std::vector<std::pair<body *, body *>> world::broad_phase()
+
 {
     std::vector<std::pair<body *, body *>> pairs;
 
