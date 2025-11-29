@@ -32,3 +32,8 @@ vec2 operator*(float left, const vec2 &right)
 {
     return vec2(left * right.x, left * right.y);
 }
+
+float dot(const vec2 &a, const vec2 &b)
+{
+    return a.x * b.x + a.y * b.y;
+}

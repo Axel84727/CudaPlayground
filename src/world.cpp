@@ -21,9 +21,9 @@ void resolve_collision(body *A, body *B)
     float masa_inversa_A = (A->masa > 0) ? (1.0f / A->masa) : 0.0f;
     float masa_inversa_B = (B->masa > 0) ? (1.0f / B->masa) : 0.0f;
 
-    float masa_suma_masas_inversas = masa_inversa_A + masa_inversa_B;
+    float suma_masas_inversas = masa_inversa_A + masa_inversa_B;
 
-    if (masa_suma_masas_inversas == 0.0f)
+    if (suma_masas_inversas == 0.0f)
     {
         return;
     }
@@ -36,6 +36,22 @@ void resolve_collision(body *A, body *B)
 
     A->posicion = A->posicion + vector_correcion_A;
     B->posicion = B->posicion + vector_correcion_B;
+
+    vec2 velocidad_relativa(B->velocidad - A->velocidad);
+    float escalar_velocidad_relativa = dot(velocidad_relativa, vector_unitario);
+
+    if (escalar_velocidad_relativa > 0.0f)
+    {
+        return;
+    }
+    // i = impulso_escalar
+    static constexpr float restitucion = 0.8f;
+    float impulso_escalar = -(1.0f + restitucion) * escalar_velocidad_relativa / suma_masas_inversas;
+
+    vec2 impulso_vectorial = impulso_escalar * vector_unitario;
+
+    A->velocidad = A->velocidad + impulso_vectorial * masa_inversa_A;
+    B->velocidad = B->velocidad - impulso_vectorial * masa_inversa_B;
 }
 void world::step_physics()
 {
