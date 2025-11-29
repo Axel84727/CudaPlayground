@@ -27,7 +27,6 @@ void resolve_collision(body *A, body *B)
     {
         return;
     }
-
     float d_a = profundidad_penetracion * (masa_inversa_A / (masa_inversa_A + masa_inversa_B));
     float d_b = profundidad_penetracion * (masa_inversa_B / (masa_inversa_A + masa_inversa_B));
 
@@ -37,7 +36,7 @@ void resolve_collision(body *A, body *B)
     A->posicion = A->posicion + vector_correcion_A;
     B->posicion = B->posicion + vector_correcion_B;
 
-    vec2 velocidad_relativa(B->velocidad - A->velocidad);
+    vec2 velocidad_relativa(A->velocidad - B->velocidad);
     float escalar_velocidad_relativa = dot(velocidad_relativa, vector_unitario);
 
     if (escalar_velocidad_relativa > 0.0f)
