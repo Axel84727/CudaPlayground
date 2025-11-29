@@ -22,6 +22,11 @@ vec2 operator*(const vec2 &left, float right)
     return vec2(left.x * right, left.y * right);
 }
 
+vec2 operator-(const vec2 &left, const vec2 &right)
+{
+    return vec2(left.x - right.x, left.y - right.y);
+}
+
 // Multiplicación (Escalar * Vector)
 vec2 operator*(float left, const vec2 &right)
 {

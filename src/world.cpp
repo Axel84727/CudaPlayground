@@ -17,7 +17,11 @@ world::world(const std::vector<body> &b_param, const vec2 &gravedad_param, float
     int totalCells = numCellsX * numCellsY;
     grid.resize(totalCells);
 }
-
+bool check_collision(body *A, body *B)
+{
+    vec2 distancia = A->posicion - B->posicion;
+    float distancia_al_cuadrado = static_cast<float>(distancia * distancia);
+}
 void world::update()
 {
     for (body &b : bodies)

@@ -34,5 +34,6 @@ struct world
     void repoblar();
     // conseguir el indice
     int get_grid_index(const vec2 &posicion) const;
+    bool check_collision(body *A, body *B);
     std::vector<std::pair<body *, body *>> broad_phase();
 };
