@@ -59,7 +59,7 @@ void world::step_physics()
     {
         if (check_collision(A, B))
         {
-            // resolve_collision
+            resolve_collision(A, B);
         }
     }
 }
