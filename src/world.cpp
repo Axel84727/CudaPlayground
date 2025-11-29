@@ -4,7 +4,39 @@
 #include "vec2.hpp"
 // world(std::vector<body> &b, const vec2 &gravedad, float delta_time);
 world::world() : bodies(), gravedad(), delta_time(0.0f) {}
+void resolve_collision(body *A, body *B)
+{
+    vec2 distancia = A->posicion - B->posicion;
 
+    float distancia_neta = distancia.x * distancia.x + distancia.y * distancia.y;
+    distancia_neta = std::sqrt(distancia_neta);
+    if (distancia_neta == 0.0f)
+    {
+        return;
+    }
+    float profundidad_penetracion = (A->radio + B->radio) - distancia_neta;
+
+    vec2 vector_unitario(distancia.x / distancia_neta, distancia.y / distancia_neta);
+
+    float masa_inversa_A = (A->masa > 0) ? (1.0f / A->masa) : 0.0f;
+    float masa_inversa_B = (B->masa > 0) ? (1.0f / B->masa) : 0.0f;
+
+    float masa_suma_masas_inversas = masa_inversa_A + masa_inversa_B;
+
+    if (masa_suma_masas_inversas == 0.0f)
+    {
+        return;
+    }
+
+    float d_a = profundidad_penetracion * (masa_inversa_A / (masa_inversa_A + masa_inversa_B));
+    float d_b = profundidad_penetracion * (masa_inversa_B / (masa_inversa_A + masa_inversa_B));
+
+    vec2 vector_correcion_A(vector_unitario * d_a);
+    vec2 vector_correcion_B(vector_unitario * -d_b);
+
+    A->posicion = A->posicion + vector_correcion_A;
+    B->posicion = B->posicion + vector_correcion_B;
+}
 void world::step_physics()
 {
     auto pairs = broad_phase();
