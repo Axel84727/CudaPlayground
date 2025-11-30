@@ -21,10 +21,10 @@ void movementSystem::verlet_integration(world &simulation_world)
 
         // 2. Calculation of Total Acceleration
         // Note: Assume 'aceleracion' contains non-gravitational forces.
-        vec2 total_acceleration = current_body.aceleracion + simulation_world.gravedad;
+        vec2 total_acceleration = current_body.acceleration + simulation_world.gravity_vector;
 
         // Save the current position before modifying it (will become the previous position)
-        vec2 current_position = current_body.posicion;
+        vec2 current_position = current_body.position;
 
         // 3. Calculation of the Next Position (Verlet equation)
 
@@ -33,15 +33,15 @@ void movementSystem::verlet_integration(world &simulation_world)
 
         // Core Verlet equation:
         // next_pos = 2 * current_pos - previous_pos + a * delta_time^2
-        vec2 next_position = (current_body.posicion * 2.0f) - current_body.posicion_previa + acceleration_term;
+        vec2 next_position = (current_body.position * 2.0f) - current_body.previous_position + acceleration_term;
 
         // 4. Update Position for the Next Step
-        current_body.posicion_previa = current_position; // The old position is the current position
-        current_body.posicion = next_position;
+        current_body.previous_position = current_position; // The old position is the current position
+        current_body.position = next_position;
 
         // 5. Explicit Velocity Calculation (Needed for collision detection)
         // velocity = (current_pos - previous_pos) / delta_time
-        current_body.velocidad = (current_body.posicion - current_body.posicion_previa) * inverse_delta_time;
+        current_body.velocity = (current_body.position - current_body.previous_position) * inverse_delta_time;
     }
 }
 
