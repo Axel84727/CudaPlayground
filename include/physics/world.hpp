@@ -2,13 +2,6 @@
 #include <vector>
 #include "body.hpp"
 #include "math/vec2.hpp"
-
-enum IntegratorType
-{
-    EULER_EXPLICIT,
-    EULER_SEMI_IMPLICIT,
-    VERLET_POSITION
-};
 struct GridInfo
 {
     float min_x = -100.0f;
@@ -23,14 +16,18 @@ struct GridInfo
 };
 struct world
 {
-    IntegratorType integrador_actual = EULER_SEMI_IMPLICIT;
+
     GridInfo grid_info;
     std::vector<body> bodies;
-    vec2 gravedad;
+
+    vec2 gravity_vector;
     float delta_time;
 
     std::vector<std::vector<body *>> grid;
     world();
-    world(const std::vector<body> &b, const vec2 &gravedad, float delta_time);
-    int get_grid_index(const vec2 &posicion) const;
+
+    world(const std::vector<body> &b, const vec2 &gravity_vector, float delta_time);
+
+    // Limpieza de nombres
+    int get_grid_index(const vec2 &position) const;
 };
