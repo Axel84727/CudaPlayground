@@ -11,8 +11,7 @@ void world::integrate()
         if (b.inv_mass <= 0)
         {
             continue;
-            ;
-        }
+                }
 
         vec2 aceleracion_total = b.aceleracion + gravedad;
         switch (integrador_actual)
