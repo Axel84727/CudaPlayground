@@ -3,15 +3,22 @@
 
 struct body
 {
-    vec2 posicion;
-    vec2 posicion_previa;
-    vec2 velocidad;
-    vec2 aceleracion;
-    float masa;
+    vec2 position;
+    vec2 previous_position;
+    vec2 velocity;
+    vec2 acceleration;
+
+    float mass;
     float inv_mass;
-    float radio;
-    float restitucion = 1.0f;
-    // basicamente uso const vec2& para agarrar el objeto en si y no usar una copia para hacerlo mas eficiente
+    float radius;
+    float restitution = 1.0f;
+
     body();
-    body(const vec2 &posicion, const vec2 &velocidad, const vec2 &aceleracion, float masa, float inv_mass, float radio, float restitucion = 1.0f);
+    body(const vec2 &position,
+         const vec2 &velocity,
+         const vec2 &acceleration,
+         float mass,
+         float inv_mass,
+         float radius,
+         float restitution = 1.0f);
 };
