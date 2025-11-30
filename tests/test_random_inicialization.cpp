@@ -7,19 +7,27 @@
 
 void test_basic_simulation_step()
 {
-    std::cout << "\n--- TEST: Basic Simulation Step (Random) ---\n";
+    // ...
+    std::cout << "\n--- TEST: Basic Simulation Step (Controlled Fall) ---\n";
 
-    // create_random_world(number_of_bodies, gravity_vector, delta_time)
-    world w = create_random_world(1, vec2(0, -9.8f), 0.016f);
+    // 1. Set up a controlled scenario: Body at Y=10.0, zero velocity, gravity -9.8
+    body A = create_body(0.0f, 10.0f, 0.0f, 0.0f, 1.0f, 0.5f, 1.0f);
+    std::vector<body> bodies = {A};
+
+    // Using a known, controlled delta_time
+    float controlled_dt = 0.016f;
+    world w(bodies, vec2(0, -9.8f), controlled_dt);
+
+    // This is vital for Verlet: previous_position must be set at the start!
+    w.bodies[0].previous_position = w.bodies[0].position;
 
     systemManager manager;
-
     manager.addSystem(std::make_unique<movementSystem>());
-    manager.addSystem(std::make_unique<collisionSystem>());
+    // ... rest of the code
 
     manager.update(w, w.delta_time);
 
-    // Check the position of the first body after one step
+    // Expected value after one step: Y ≈ 9.99875.
     std::cout << "First body's position Y after 1 step: " << w.bodies[0].position.y << "\n";
 }
 

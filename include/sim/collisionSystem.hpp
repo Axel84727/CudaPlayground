@@ -3,10 +3,10 @@
 #include <vector>
 #include <utility>
 #include "ISystem.hpp"
+#include "math/vec2.hpp"
 
 class body;
 class world;
-class vec2;
 
 // ====================================================================
 // --- COLLISION DATA STRUCTURES ---

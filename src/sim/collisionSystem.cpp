@@ -204,10 +204,14 @@ void collisionSystem::resolve_contact_with_impulse(body *body_A, body *body_B, w
     float impulse_scalar = -(1.0f + effective_restitution) * velocity_along_normal;
     impulse_scalar /= inverse_mass_sum;
 
+    // J is positive, and collision_normal points from A to B
     vec2 collision_impulse_vector = collision_normal * impulse_scalar;
 
-    // Apply impulse
+    // Apply impulse:
+    // Body A: Pushed AWAY from the collision (vector impulse points away from B)
     body_A->velocity = body_A->velocity - collision_impulse_vector * inverse_mass_A;
+
+    // Body B: Pushed ALONG the collision normal (vector impulse points away from A)
     body_B->velocity = body_B->velocity + collision_impulse_vector * inverse_mass_B;
 
     // 4. LOW-VELOCITY ELIMINATION (Sleeping)
