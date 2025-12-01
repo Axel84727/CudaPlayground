@@ -20,8 +20,7 @@ void movementSystem::verlet_integration(world &simulation_world)
         }
 
         // 2. Calculation of Total Acceleration
-        // Note: Assume 'aceleracion' contains non-gravitational forces.
-        vec2 total_acceleration = current_body.acceleration + simulation_world.gravity_vector;
+        vec2 total_acceleration = simulation_world.gravity_vector;
 
         // Save the current position before modifying it (will become the previous position)
         vec2 current_position = current_body.position;
