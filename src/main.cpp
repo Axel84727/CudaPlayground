@@ -1,339 +1,460 @@
-/*
+#include "raylib.h"
+#include "physics/world.hpp"
+#include "physics/body.hpp"
+#include "math/vec2.hpp"
+#include "sim/systemManager.hpp"
+#include "sim/movementSystem.hpp"
+#include "sim/collisionSystem.hpp"
+#include <memory>
 #include <iostream>
 #include <vector>
-#include <random>
-#include <chrono>
-#include <cmath>   // Para std::isnan, std::isinf
-#include <iomanip> // Para std::setprecision
-#include "physics/world.hpp"
 
-// ================================================================
-// DECLARACIONES DE FUNCIONES DE PRUEBA
-// ================================================================
+// ====================================================================
+// --- CONFIGURACIÓN DE VISUALIZACIÓN ---
+// ====================================================================
 
-// M1: Constructores
-void test_constructors();
-// M2/M3: Inicialización y Simulación simple
-void test_random_initialization();
-// M4: Colisiones
-void test_elastic_collision();
-void test_static_collision();
-// M5: Integradores
-void test_integrator_stability(IntegratorType type, const char *name);
+// Dimensiones de la Ventana
+const int screen_width = 1200;
+const int screen_height = 800;
 
-// ---------------------------------------------------------------
-// Función auxiliar para imprimir vec2 (Mantenerla en global)
-// ---------------------------------------------------------------
-void print_vec2(const vec2 &v)
+// Escala del Mundo: 1 unidad de mundo (metro) = 10 píxeles.
+const float world_scale = 10.0f;
+
+// Puntos centrales de la ventana para mapeo de coordenadas
+const float center_x = screen_width / 2.0f;
+const float center_y = screen_height / 2.0f;
+
+// ====================================================================
+// --- FUNCIONES AUXILIARES ---
+// ====================================================================
+
+/**
+ * @brief Convierte coordenadas de Mundo (Y+ arriba) a coordenadas de Pantalla (Y+ abajo).
+ * @param world_pos La posición en el mundo físico.
+ * @return vec2 con las coordenadas en píxeles.
+ */
+vec2 WorldToScreen(const vec2 &world_pos)
 {
-    std::cout << "(" << v.x << ", " << v.y << ")";
+    // 1. Escalado y Centrado X: Mapea 0,0 del mundo al centro X de la pantalla.
+    float screen_x = world_pos.x * world_scale + center_x;
+
+    // 2. Escalado e Inversión Y: Mapea 0,0 del mundo al centro Y, e invierte Y.
+    float screen_y = center_y - world_pos.y * world_scale;
+
+    return vec2(screen_x, screen_y);
 }
 
-// ================================================================
-// IMPLEMENTACIONES DE FUNCIONES DE PRUEBA
-// ================================================================
-
-// ---------------------------------------------------------------
-// Test 1: Pruebas de Constructores (M1)
-// ---------------------------------------------------------------
-void test_constructors()
+/**
+ * @brief Función auxiliar para crear un cuerpo con inicialización de inv_mass.
+ */
+body create_body(float pos_x, float pos_y, float vel_x, float vel_y, float mass, float radius, float restitution)
 {
-    std::cout << "--- PRUEBA DE CONSTRUCTORES (M1) ---" << std::endl;
-
-    // 1. Pruebas de vec2
-    vec2 v_cero;
-    std::cout << "1.1 Vec2 por Defecto: ";
-    print_vec2(v_cero);
-    std::cout << std::endl;
-
-    vec2 v_pos_b1(10.0f, 5.0f);
-    vec2 v_vel_b1(2.0f, 0.0f);
-    vec2 v_accel_b1(0.0f, -9.8f);
-
-    std::cout << "1.2 Vec2 Parametrizado: ";
-    print_vec2(v_pos_b1);
-    std::cout << std::endl;
-
-    // 2. Pruebas de body
-    float masa_b1 = 50.0f;
-    float inv_masa_b1 = 1.0f / masa_b1;
-
-    body b1(v_pos_b1, v_vel_b1, v_accel_b1, masa_b1, inv_masa_b1, 1.0f);
-
-    std::cout << "2. Body Inicializado:" << std::endl;
-    std::cout << "   Posicion: ";
-    print_vec2(b1.posicion);
-    std::cout << ", Masa: " << b1.masa << ", Inv_M: " << b1.inv_mass << std::endl;
-
-    // 3. Pruebas de world (Sobrecarga de Constructores)
-    world mundo_vacio;
-    std::cout << "3.1 World por Defecto: Bodies = " << mundo_vacio.bodies.size();
-    std::cout << ", Gravedad = ";
-    print_vec2(mundo_vacio.gravedad);
-    std::cout << std::endl;
-
-    std::vector<body> cuerpos_iniciales;
-    cuerpos_iniciales.push_back(b1);
-    body b2(vec2(-10.0f, 0.0f), v_vel_b1, v_accel_b1, 5.0f, 1.0f / 5.0f, 0.3f);
-    cuerpos_iniciales.push_back(b2);
-
-    vec2 g_simulacion(0.0f, -10.0f);
-    world mi_mundo(cuerpos_iniciales, g_simulacion, 0.016f);
-
-    std::cout << "3.2 World Parametrizado:" << std::endl;
-    std::cout << "   Total Bodies: " << mi_mundo.bodies.size() << std::endl;
-    std::cout << "   Gravedad: ";
-    print_vec2(mi_mundo.gravedad);
-    std::cout << ", Delta Time: " << mi_mundo.delta_time << std::endl;
-    std::cout << "   Posicion del Body 1 copiado: ";
-    print_vec2(mi_mundo.bodies[0].posicion);
-    std::cout << "\n--------------------------------------------------------\n";
+    float inv_mass = (mass > 0.0f) ? 1.0f / mass : 0.0f;
+    // La aceleración inicial se pone en 0, ya que Verlet la calcula a partir de la fuerza.
+    return body(vec2(pos_x, pos_y), vec2(vel_x, vel_y), vec2(0, 0), mass, inv_mass, radius, restitution);
 }
 
-// ---------------------------------------------------------------
-// Test 2: Prueba de Inicialización Aleatoria y Simulación Simple (M2/M3)
-// ---------------------------------------------------------------
-void test_random_initialization()
-{
-    std::cout << "--- PRUEBA DE INICIALIZACIÓN Y SIMULACIÓN SIMPLE (M2/M3) ---\n";
+// ====================================================================
+// --- BUCLE PRINCIPAL ---
+// ====================================================================
 
-    std::vector<body> cuerpos;
-    constexpr int NUM_ENTIDADES = 100;
-    constexpr float RANGO_POS = 50.0f;
-    constexpr float MIN_MASA = 1.0f;
-    constexpr float MAX_MASA = 10.0f;
-
-    cuerpos.reserve(NUM_ENTIDADES);
-
-    unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
-    std::mt19937 generador(seed);
-
-    std::uniform_real_distribution<float> dist_pos(-RANGO_POS, RANGO_POS);
-    std::uniform_real_distribution<float> dist_vel(-5.0f, 5.0f);
-    std::uniform_real_distribution<float> dist_masa(MIN_MASA, MAX_MASA);
-    std::uniform_real_distribution<float> dist_radio(0.5f, 2.0f);
-
-    for (int i = 0; i < NUM_ENTIDADES; i++)
-    {
-        float masa = dist_masa(generador);
-        float inv_masa = (masa > 0.0f) ? 1.0f / masa : 0.0f;
-
-        body new_body(
-            vec2(dist_pos(generador), dist_pos(generador)),
-            vec2(dist_vel(generador), dist_vel(generador)),
-            vec2(0.0f, 0.0f),
-            masa,
-            inv_masa,
-            dist_radio(generador));
-
-        cuerpos.push_back(new_body);
-    }
-
-    vec2 gravedad_sim(0.0f, -9.81f);
-    float dt = 1.0f / 60.0f;
-
-    world world1(cuerpos, gravedad_sim, dt);
-
-    std::cout << "----INICIALIZACION EXITOSA----\n";
-    std::cout << "World inicializado con " << world1.bodies.size() << " cuerpos.\n";
-    std::cout << "El primer cuerpo esta en x:" << world1.bodies[0].posicion.x << " y: " << world1.bodies[0].posicion.y << "\n";
-
-    std::cout << "\n--- EJECUTANDO BUCLE DE SIMULACION ---\n";
-
-    int max_ticks = 100;
-    for (int t = 0; t < max_ticks; ++t)
-    {
-        world1.update();
-        if (t % 10 == 0)
-        {
-            std::cout << "Tick " << t
-                      << ": Pos Y -> " << std::fixed << std::setprecision(4) << world1.bodies[0].posicion.y
-                      << " | Vel Y -> " << std::fixed << std::setprecision(4) << world1.bodies[0].velocidad.y << "\n";
-        }
-    }
-    std::cout << "\n--- RESULTADO FINAL ---\n";
-    std::cout << "Cuerpo 0: Posicion Final Y: " << std::fixed << std::setprecision(4) << world1.bodies[0].posicion.y << "\n";
-    std::cout << "--------------------------------------------------------\n";
-}
-
-// ---------------------------------------------------------------
-// Test 3: Colisión frontal elástica (M4)
-// ---------------------------------------------------------------
-void test_elastic_collision()
-{
-    std::cout << "========================================================\n";
-    std::cout << "PRUEBA 3: COLISION FRONTAL ELASTICA (M4)\n";
-    std::cout << "OBJETIVO: Verificar separacion y cambio de velocidad (rebote).\n";
-    std::cout << "========================================================\n";
-
-    const float dt = 1.0f / 60.0f;
-    const float radio = 1.0f;
-    const float masa = 1.0f;
-    const float inv_masa = 1.0f;
-    const float vel_inicial = 5.0f;
-    const float distancia_inicial = 2.0f;
-
-    body A(vec2(-distancia_inicial / 2.0f, 0.0f), vec2(vel_inicial, 0.0f), vec2(0.0f, 0.0f), masa, inv_masa, radio);
-    body B(vec2(distancia_inicial / 2.0f, 0.0f), vec2(-vel_inicial, 0.0f), vec2(0.0f, 0.0f), masa, inv_masa, radio);
-
-    std::vector<body> bodies = {A, B};
-    world collision_world(bodies, vec2(0.0f, 0.0f), dt);
-
-    std::cout << "ESTADO INICIAL:\n";
-    std::cout << "Body A | Pos X: " << std::fixed << std::setprecision(4) << collision_world.bodies[0].posicion.x << ", Vel X: " << collision_world.bodies[0].velocidad.x << std::endl;
-    std::cout << "Body B | Pos X: " << std::fixed << std::setprecision(4) << collision_world.bodies[1].posicion.x << ", Vel X: " << collision_world.bodies[1].velocidad.x << std::endl;
-
-    std::cout << "\n--- EJECUTANDO TICK 1 (COLISION Y RESOLUCION) ---\n";
-    collision_world.update();
-
-    float expected_vel_after = -(0.8f * vel_inicial);
-
-    std::cout << "ESTADO FINAL:\n";
-    std::cout << "Body A | Pos X: " << std::fixed << std::setprecision(4) << collision_world.bodies[0].posicion.x << ", Vel X: " << std::fixed << std::setprecision(4) << collision_world.bodies[0].velocidad.x << std::endl;
-    std::cout << "Body B | Pos X: " << std::fixed << std::setprecision(4) << collision_world.bodies[1].posicion.x << ", Vel X: " << std::fixed << std::setprecision(4) << collision_world.bodies[1].velocidad.x << std::endl;
-
-    if (std::abs(collision_world.bodies[0].velocidad.x - expected_vel_after) < 0.2f)
-    {
-        std::cout << "TEST RESULTADO: COLISIÓN FRONTAL - EXITOSA (Rebote OK).\n";
-    }
-    else
-    {
-        std::cout << "TEST RESULTADO: COLISIÓN FRONTAL - FALLIDA.\n";
-    }
-    std::cout << "\n";
-}
-
-// ---------------------------------------------------------------
-// Test 4: Colisión con cuerpo estático (M4)
-// ---------------------------------------------------------------
-void test_static_collision()
-{
-    std::cout << "========================================================\n";
-    std::cout << "PRUEBA 4: COLISION CON CUERPO ESTATICO (M4)\n";
-    std::cout << "OBJETIVO: Verificar que el estático no se mueve y el dinámico rebota.\n";
-    std::cout << "========================================================\n";
-
-    const float dt = 1.0f / 60.0f;
-    const float radio = 1.0f;
-    const float masa_movil = 1.0f;
-    const float vel_inicial = 5.0f;
-
-    body A(vec2(-2.0f, 0.0f), vec2(vel_inicial, 0.0f), vec2(0.0f, 0.0f), masa_movil, 1.0f / masa_movil, radio);
-    body B(vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), 0.0f, 0.0f, radio);
-
-    std::vector<body> bodies = {A, B};
-    world collision_world(bodies, vec2(0.0f, 0.0f), dt);
-
-    std::cout << "ESTADO INICIAL:\n";
-    std::cout << "Body A (Movil) | Pos X: " << std::fixed << std::setprecision(4) << collision_world.bodies[0].posicion.x << ", Vel X: " << collision_world.bodies[0].velocidad.x << std::endl;
-    std::cout << "Body B (Estatico) | Pos X: " << std::fixed << std::setprecision(4) << collision_world.bodies[1].posicion.x << ", Vel X: " << collision_world.bodies[1].velocidad.x << std::endl;
-
-    std::cout << "\n--- EJECUTANDO TICK 1 (COLISION CON PARED) ---\n";
-    collision_world.update();
-
-    float expected_vel_A = -(0.8f * vel_inicial);
-
-    std::cout << "ESTADO FINAL:\n";
-    std::cout << "Body A (Movil) | Pos X: " << std::fixed << std::setprecision(4) << collision_world.bodies[0].posicion.x << ", Vel X: " << std::fixed << std::setprecision(4) << collision_world.bodies[0].velocidad.x << std::endl;
-    std::cout << "Body B (Estatico) | Pos X: " << std::fixed << std::setprecision(4) << collision_world.bodies[1].posicion.x << ", Vel X: " << std::fixed << std::setprecision(4) << collision_world.bodies[1].velocidad.x << std::endl;
-
-    if (collision_world.bodies[1].posicion.x == 0.0f && collision_world.bodies[1].velocidad.x == 0.0f && std::abs(collision_world.bodies[0].velocidad.x - expected_vel_A) < 0.2f)
-    {
-        std::cout << "TEST RESULTADO: ESTATICO - EXITOSA (Estático no se movió; Movil rebotó OK).\n";
-    }
-    else
-    {
-        std::cout << "TEST RESULTADO: ESTATICO - FALLIDA.\n";
-    }
-    std::cout << "\n";
-}
-
-// ---------------------------------------------------------------
-// Test 5: Prueba de Estabilidad de Integradores (M5)
-// ---------------------------------------------------------------
-void test_integrator_stability(IntegratorType type, const char *name)
-{
-    std::cout << "\n========================================================\n";
-    std::cout << "PRUEBA 5: ESTABILIDAD DE INTEGRADORES (M5)\n";
-    std::cout << "INTEGRADOR: " << name << "\n";
-    std::cout << "OBJETIVO: Demostrar inestabilidad del Euler Explícito con dt alto.\n";
-    std::cout << "========================================================\n";
-
-    const float dt = 0.1f;                  // Paso de tiempo ALTO (Causa inestabilidad en Euler Explícito)
-    const float INITIAL_FALL_SPEED = 15.0f; // Un valor grande para forzar el fallo
-
-    body A(vec2(0.0f, 5.0f), vec2(0.0f, -INITIAL_FALL_SPEED), vec2(0.0f, 0.0f), 1.0f, 1.0f, 1.0f);
-    // Cuerpo B (Estático): Suelo para colisionar. Posición Y=0.0
-    body B(vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), vec2(0.0f, 0.0f), 0.0f, 0.0f, 1.0f);
-
-    std::vector<body> bodies = {A, B};
-    vec2 gravedad_sim(0.0f, -9.81f);
-
-    world stability_world(bodies, gravedad_sim, dt);
-
-    // 1. Establecer el integrador para la prueba
-    stability_world.integrador_actual = type; // Usar el nombre de la variable de world::hpp
-
-    // 2. Asegurarse de que posicion_previa esté inicializada para Verlet
-    stability_world.bodies[0].posicion_previa = stability_world.bodies[0].posicion;
-
-    float max_height = 5.0f;
-    bool exploded = false;
-
-    // Ejecutar 50 ticks para observar el comportamiento
-    for (int t = 0; t < 50; ++t)
-    {
-        stability_world.update();
-        float current_y = stability_world.bodies[0].posicion.y;
-
-        // Chequeo de explosión (valores no físicos)
-        if (std::isnan(current_y) || std::isinf(current_y) || current_y > 20.0f)
-        {
-            exploded = true;
-            break;
-        }
-
-        // Rastreamos la altura máxima de rebote
-        if (current_y > max_height)
-        {
-            max_height = current_y;
-        }
-    }
-
-    std::cout << "ESTADO FINAL:\n";
-
-    if (exploded)
-    {
-        std::cout << "RESULTADO: FALLO - EXPLOSIÓN / INESTABILIDAD\n";
-    }
-    else
-    {
-        std::cout << "RESULTADO: ÉXITO - ESTABLE. Altura máxima de rebote: " << std::fixed << std::setprecision(4) << max_height << "m\n";
-    }
-    std::cout << "\n";
-}
-
-// ================================================================
-// FUNCIÓN PRINCIPAL MAIN()
-// ================================================================
 int main()
 {
-    // --- M1: Pruebas de Constructores ---
-    test_constructors();
+    // --- 1. Inicialización de raylib ---
+    InitWindow(screen_width, screen_height, "Physics Engine (Verlet + raylib)");
+    SetTargetFPS(144); // FPS de renderizado
 
-    // --- M2/M3: Pruebas de Inicialización y Simulación Simple ---
-    test_random_initialization();
+    // --- 2. Inicialización de la Simulación (Mundo Físico) ---
 
-    // --- M4: Pruebas de Colisiones ---
-    test_elastic_collision();
-    test_static_collision();
+    // Configuración
+    const vec2 gravity = vec2(0.0f, -9.8f);
+    const float fixed_dt = 1.0f / 60.0f; // Paso de tiempo fijo para la física (60Hz)
 
-    // --- M5: Pruebas de Integradores ---
-    test_integrator_stability(EULER_EXPLICIT, "EULER EXPLICITO (DEBE EXPLOTAR)");
-    test_integrator_stability(EULER_SEMI_IMPLICIT, "EULER SEMI-IMPLICITO (ESTABLE)");
-    test_integrator_stability(VERLET_POSITION, "VERLET POSITION (CONSERVADOR)");
+    // Cuerpos Iniciales:
+    std::vector<body> bodies;
 
+    // Bola principal cayendo (rebota)
+    bodies.push_back(create_body(0.0f, 40.0f, 0.0f, 0.0f, 1.0f, 2.0f, 0.8f));
+
+    // Bola de colisión elástica
+    bodies.push_back(create_body(15.0f, 40.0f, -5.0f, 0.0f, 1.0f, 2.0f, 1.0f));
+
+    // Bola de colisión inelástica (va hacia la izquierda)
+    bodies.push_back(create_body(-15.0f, 40.0f, 5.0f, 0.0f, 1.0f, 2.0f, 0.5f));
+
+    // Muro estático central (inv_mass = 0)
+    // bodies.push_back(create_body(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 10.0f, 0.0f));
+
+    world sim_world(bodies, gravity, fixed_dt);
+
+    // Adjust world grid bounds to match the visible window in world coordinates
+    // So that wall/ceiling/ground collisions occur at the screen edges
+    float vis_min_x = -center_x / world_scale;
+    float vis_max_x = (screen_width - center_x) / world_scale;
+    float vis_max_y = center_y / world_scale;
+    float vis_min_y = -(screen_height - center_y) / world_scale;
+
+    sim_world.grid_info.min_x = vis_min_x;
+    sim_world.grid_info.max_x = vis_max_x;
+    sim_world.grid_info.min_y = vis_min_y;
+    sim_world.grid_info.max_y = vis_max_y;
+
+    // Recompute grid sizes and resize grid storage (same logic as in world constructor)
+    {
+        float width = sim_world.grid_info.max_x - sim_world.grid_info.min_x;
+        float height = sim_world.grid_info.max_y - sim_world.grid_info.min_y;
+        int numCellsX = static_cast<int>(std::ceil(width / sim_world.grid_info.cell_size));
+        int numCellsY = static_cast<int>(std::ceil(height / sim_world.grid_info.cell_size));
+        sim_world.grid_info.num_cells_x = numCellsX;
+        sim_world.grid_info.num_cells_y = numCellsY;
+        int totalCells = std::max(1, numCellsX * numCellsY);
+        sim_world.grid.clear();
+        sim_world.grid.resize(totalCells);
+    }
+
+    // Inicialización de previous_position para la primera ejecución de Verlet
+    for (auto &b : sim_world.bodies)
+    {
+        // CORRECCIN CR	TICA DE VERLET:
+        // Establecer previous_position para reflejar la velocidad inicial (si la hay).
+        // p_old = p_curr - v_init * dt
+        b.previous_position = b.position - b.velocity * sim_world.delta_time;
+    }
+
+    // Configuración de Sistemas
+    systemManager manager;
+    manager.addSystem(std::make_unique<movementSystem>());
+    manager.addSystem(std::make_unique<collisionSystem>());
+
+    float accumulator = 0.0f;
+    // --- Selección y UI en pantalla ---
+    int selected_body_index = -1;
+    auto select_body_at_screen = [&](int mx, int my) -> int
+    {
+        // Convierte pantalla a mundo
+        float wx = (mx - center_x) / world_scale;
+        float wy = (center_y - my) / world_scale;
+        vec2 click_world(wx, wy);
+
+        float best_dist2 = 1e30f;
+        int best_idx = -1;
+        for (size_t i = 0; i < sim_world.bodies.size(); ++i)
+        {
+            const auto &b = sim_world.bodies[i];
+            float dx = b.position.x - click_world.x;
+            float dy = b.position.y - click_world.y;
+            float d2 = dx * dx + dy * dy;
+            if (d2 < best_dist2 && d2 <= (b.radius * b.radius))
+            {
+                best_dist2 = d2;
+                best_idx = (int)i;
+            }
+        }
+        return best_idx;
+    };
+
+    // --- Drag / Spawn state ---
+    static bool dragging = false;
+    static int dragging_idx = -1;
+    // ring buffer of last mouse positions (world coords) to compute throw velocity
+    static vec2 mouse_history[8];
+    static int mouse_history_idx = 0;
+    static int mouse_history_count = 0;
+    vec2 last_mouse_world = vec2(0, 0);
+
+    // Spawn parameters (modifiable with keys)
+    static float spawn_mass = 1.0f;
+    static float spawn_radius = 2.0f;
+    static float spawn_restitution = 0.8f;
+
+    // --- 3. Bucle Principal de Renderizado y Simulación ---
+    while (!WindowShouldClose())
+    {
+
+        // --- A. Time Stepping (Física estable con paso fijo) ---
+        accumulator += GetFrameTime();
+
+        // --- Controles de pausa/step/snapshot ---
+        static bool paused = false;
+        static bool step_next = false;
+        static std::vector<body> snapshot;
+
+        if (IsKeyPressed(KEY_P))
+        {
+            paused = !paused;
+        }
+        if (IsKeyPressed(KEY_N))
+        {
+            // single step
+            if (paused)
+                step_next = true;
+        }
+        if (IsKeyPressed(KEY_O))
+        {
+            snapshot = sim_world.bodies; // copy current state
+        }
+        if (IsKeyPressed(KEY_L))
+        {
+            if (!snapshot.empty())
+            {
+                sim_world.bodies = snapshot;
+                // Recompute previous_position for all bodies to keep Verlet consistent
+                for (auto &b : sim_world.bodies)
+                {
+                    b.inv_mass = (b.mass > 0.0f) ? 1.0f / b.mass : 0.0f;
+                    float dt = sim_world.delta_time;
+                    if (dt > 0.0f)
+                        b.previous_position = b.position - b.velocity * dt;
+                }
+            }
+        }
+
+        // Run physics only when not paused, or single-step requested
+        while (accumulator >= fixed_dt)
+        {
+            if (!paused || step_next)
+            {
+                manager.update(sim_world, fixed_dt); // Actualiza la física
+                step_next = false;
+            }
+            accumulator -= fixed_dt;
+            if (paused)
+                break; // when paused, only run one step per keypress
+        }
+
+        // boundary clamping removed: collisionSystem now handles wall/ground bounces
+
+        // Smoothly move selected/dragged body towards mouse while dragging
+        if (dragging && dragging_idx >= 0 && dragging_idx < (int)sim_world.bodies.size())
+        {
+            body &b = sim_world.bodies[dragging_idx];
+            // latest mouse world
+            vec2 latest_mouse = mouse_history[(mouse_history_idx - 1 + 8) % 8];
+            // lerp factor (0..1) smaller = smoother
+            float lerp_f = 0.25f;
+            b.position = b.position * (1.0f - lerp_f) + latest_mouse * lerp_f;
+            // zero velocity while dragging to avoid physics fighting the drag
+            b.velocity = vec2(0, 0);
+            float dt = sim_world.delta_time;
+            if (dt > 0.0f)
+                b.previous_position = b.position - b.velocity * dt;
+        }
+
+        // --- INPUT: Drag / Spawn / Selección y modificación de propiedades ---
+        // Drag start (smooth)
+
+        if (IsMouseButtonDown(MOUSE_LEFT_BUTTON))
+        {
+            if (!dragging)
+            {
+                int mx = GetMouseX();
+                int my = GetMouseY();
+                int idx = select_body_at_screen(mx, my);
+                if (idx >= 0)
+                {
+                    dragging = true;
+                    dragging_idx = idx;
+                }
+            }
+            int mx = GetMouseX();
+            int my = GetMouseY();
+            float wx = (mx - center_x) / world_scale;
+            float wy = (center_y - my) / world_scale;
+            // push into history
+            mouse_history[mouse_history_idx] = vec2(wx, wy);
+            mouse_history_idx = (mouse_history_idx + 1) % 8;
+            mouse_history_count = std::min(mouse_history_count + 1, 8);
+        }
+
+        if (IsMouseButtonReleased(MOUSE_LEFT_BUTTON))
+        {
+            if (dragging && dragging_idx >= 0 && dragging_idx < (int)sim_world.bodies.size())
+            {
+                body &b = sim_world.bodies[dragging_idx];
+                // compute average mouse velocity from history
+                if (mouse_history_count >= 2)
+                {
+                    int oldest = (mouse_history_idx - mouse_history_count + 8) % 8;
+                    vec2 oldest_pos = mouse_history[oldest];
+                    vec2 newest_pos = mouse_history[(mouse_history_idx - 1 + 8) % 8];
+                    vec2 delta = newest_pos - oldest_pos;
+                    float dt_total = (float)mouse_history_count * (1.0f / 60.0f); // approximate frame dt
+                    vec2 mouse_vel = (dt_total > 0.0f) ? delta * (1.0f / dt_total) : vec2(0, 0);
+                    // apply a scaled down version as throw velocity
+                    b.velocity = mouse_vel * 0.5f;
+                }
+                else
+                {
+                    // fallback: small nudge
+                    b.velocity = vec2(0, 0);
+                }
+                float dt = sim_world.delta_time;
+                if (dt > 0.0f)
+                    b.previous_position = b.position - b.velocity * dt;
+            }
+            dragging = false;
+            dragging_idx = -1;
+        }
+
+        // Spawn new body with SPACE (at mouse)
+        static float spawn_mass = 1.0f;
+        static float spawn_radius = 2.0f;
+        static float spawn_restitution = 0.8f;
+
+        if (IsKeyPressed(KEY_SPACE))
+        {
+            int mx = GetMouseX();
+            int my = GetMouseY();
+            float wx = (mx - center_x) / world_scale;
+            float wy = (center_y - my) / world_scale;
+            sim_world.bodies.push_back(create_body(wx, wy, 0.0f, 0.0f, spawn_mass, spawn_radius, spawn_restitution));
+            auto &nb = sim_world.bodies.back();
+            float dt = sim_world.delta_time;
+            if (dt > 0.0f)
+                nb.previous_position = nb.position - nb.velocity * dt;
+        }
+
+        // Spawn parameter keys: 1/2 mass, 3/4 restitution, 5/6 radius
+        if (IsKeyPressed(KEY_ONE))
+            spawn_mass = std::max(0.01f, spawn_mass - 0.1f);
+        if (IsKeyPressed(KEY_TWO))
+            spawn_mass += 0.1f;
+        if (IsKeyPressed(KEY_THREE))
+            spawn_restitution = std::max(0.0f, spawn_restitution - 0.05f);
+        if (IsKeyPressed(KEY_FOUR))
+            spawn_restitution = std::min(1.0f, spawn_restitution + 0.05f);
+        if (IsKeyPressed(KEY_FIVE))
+            spawn_radius = std::max(0.1f, spawn_radius - 0.1f);
+        if (IsKeyPressed(KEY_SIX))
+            spawn_radius += 0.1f;
+
+        if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON))
+        {
+            int mx = GetMouseX();
+            int my = GetMouseY();
+            int idx = select_body_at_screen(mx, my);
+            selected_body_index = idx;
+        }
+
+        if (selected_body_index >= 0 && selected_body_index < (int)sim_world.bodies.size())
+        {
+            bool changed = false;
+            body &sel = sim_world.bodies[selected_body_index];
+
+            // Ajustes: M/m = masa +/-, R/r = restitution +/-, S/s = radius +/-
+            if (IsKeyPressed(KEY_M))
+            {
+                sel.mass += 0.1f;
+                changed = true;
+            }
+            if (IsKeyPressed(KEY_B)) // pequeña masa abajo (usamos B como minúscula alternativa)
+            {
+                sel.mass = std::max(0.0f, sel.mass - 0.1f);
+                changed = true;
+            }
+            if (IsKeyPressed(KEY_R))
+            {
+                sel.restitution = std::min(1.0f, sel.restitution + 0.05f);
+                changed = true;
+            }
+            if (IsKeyPressed(KEY_T)) // R minúscula alternativa
+            {
+                sel.restitution = std::max(0.0f, sel.restitution - 0.05f);
+                changed = true;
+            }
+            if (IsKeyPressed(KEY_S))
+            {
+                sel.radius = sel.radius + 0.1f;
+                changed = true;
+            }
+            if (IsKeyPressed(KEY_A)) // s minúscula alternativa
+            {
+                sel.radius = std::max(0.1f, sel.radius - 0.1f);
+                changed = true;
+            }
+
+            if (changed)
+            {
+                // Recalcular inv_mass y sincronizar previous_position
+                sel.inv_mass = (sel.mass > 0.0f) ? 1.0f / sel.mass : 0.0f;
+                float dt = sim_world.delta_time;
+                if (dt > 0.0f)
+                {
+                    sel.previous_position = sel.position - sel.velocity * dt;
+                }
+            }
+        }
+
+        // --- B. Renderizado (Visualización) ---
+        BeginDrawing();
+        ClearBackground(DARKGRAY);
+
+        // 1. Dibuja el suelo (Ground_Y_Limit = 0.0f en la simulación)
+        vec2 ground_screen_pos = WorldToScreen(vec2(0.0f, 0.0f));
+        // Dibujamos una línea blanca en la posición 0.0f del mundo
+        DrawLine(0, (int)ground_screen_pos.y, screen_width, (int)ground_screen_pos.y, WHITE);
+        DrawText("Ground (Y = 0.0m)", 10, (int)ground_screen_pos.y - 20, 20, WHITE);
+
+        // 2. Dibuja los cuerpos (y etiquetas)
+        for (size_t i = 0; i < sim_world.bodies.size(); ++i)
+        {
+            const auto &b = sim_world.bodies[i];
+            vec2 screen_pos = WorldToScreen(b.position);
+            int screen_radius = (int)(b.radius * world_scale);
+
+            // Determinar color (Rojo si es estático, Azul si es dinámico)
+            Color color = (b.inv_mass == 0.0f) ? RED : BLUE;
+
+            // Dibuja el círculo principal
+            DrawCircle((int)screen_pos.x, (int)screen_pos.y, screen_radius, color);
+            // Dibuja el contorno
+            DrawCircleLines((int)screen_pos.x, (int)screen_pos.y, screen_radius, BLACK);
+
+            // Etiqueta con id y masa encima del cuerpo
+            DrawText(TextFormat("#%d m:%.2f", (int)i, b.mass), (int)screen_pos.x - screen_radius, (int)screen_pos.y - screen_radius - 18, 12, WHITE);
+
+            // Resaltar si es el seleccionado
+            if ((int)i == selected_body_index)
+            {
+                DrawCircleLines((int)screen_pos.x, (int)screen_pos.y, screen_radius + 4, YELLOW);
+                // Marca con flecha o rectángulo pequeño
+                DrawText("SELECTED", (int)screen_pos.x - screen_radius, (int)screen_pos.y + screen_radius + 6, 12, YELLOW);
+            }
+        }
+
+        // Si no hay seleccionado, mostrar help breve
+        if (selected_body_index < 0)
+        {
+            DrawText("Click a body to select it. Keys: M/B mass +/-, R/T restitution +/-, S/A radius +/-", 10, screen_height - 24, 14, LIGHTGRAY);
+        }
+
+        // 3. Dibuja el FPS
+        DrawFPS(10, 10);
+        DrawText("Fixed DT: 1/60s", 10, 35, 20, WHITE);
+        // Mostrar estado de pausa/snapshot
+        // (replicar la variable paused consultando el estado de la tecla no es posible aquí, asumimos tecla toggles)
+        // Dibujar ayuda rápida
+        DrawText("P: Pause/Resume  N: Step (when paused)  O: Save snapshot  L: Load snapshot", 10, 60, 14, LIGHTGRAY);
+
+        // 4. Panel de propiedades (si hay seleccionado)
+        if (selected_body_index >= 0 && selected_body_index < (int)sim_world.bodies.size())
+        {
+            const body &sel = sim_world.bodies[selected_body_index];
+            int panel_x = screen_width - 260;
+            int panel_y = 10;
+            DrawRectangle(panel_x - 10, panel_y - 10, 250, 140, Fade(BLACK, 0.6f));
+            DrawText(TextFormat("Selected: %d", selected_body_index), panel_x, panel_y, 18, YELLOW);
+            DrawText(TextFormat("Mass: %.2f", sel.mass), panel_x, panel_y + 24, 16, WHITE);
+            DrawText(TextFormat("InvMass: %.4f", sel.inv_mass), panel_x, panel_y + 44, 16, WHITE);
+            DrawText(TextFormat("Radius: %.2f m", sel.radius), panel_x, panel_y + 64, 16, WHITE);
+            DrawText(TextFormat("Restitution: %.2f", sel.restitution), panel_x, panel_y + 84, 16, WHITE);
+            DrawText("Keys: M/B mass +/-, R/T restitution +/-, S/A radius +/-", panel_x, panel_y + 110, 12, LIGHTGRAY);
+        }
+
+        EndDrawing();
+    }
+
+    // --- 4. Liberación de Recursos ---
+    CloseWindow();
     return 0;
 }
-
-*/

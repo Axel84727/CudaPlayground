@@ -12,7 +12,7 @@
 // It's recommended to move these values to private members or a configuration class.
 const float POSITION_CORRECTION_SLOP = 0.001f;  // Minimum penetration before correcting
 const float POSITION_CORRECTION_PERCENT = 0.4f; // Percentage of penetration to correct
-const float VELOCITY_EPSILON = 1e-3f;           // Threshold to snap velocity to zero
+const float VELOCITY_EPSILON = 1e-5f;           // Threshold to snap velocity to zero
 
 // ====================================================================
 // --- CONSTRUCTOR/DESTRUCTOR ---
@@ -214,6 +214,16 @@ void collisionSystem::resolve_contact_with_impulse(body *body_A, body *body_B, w
     // Body B: Pushed ALONG the collision normal (vector impulse points away from A)
     body_B->velocity = body_B->velocity + collision_impulse_vector * inverse_mass_B;
 
+    // --- IMPORTANT: Keep Verlet integrator consistent ---
+    // After changing velocities via impulses, update previous_position so that
+    // the next Verlet integration will produce the expected positions.
+    // previous_position = position - velocity * delta_time
+    float dt = simulation_world.delta_time;
+    if (dt > 0.0f)
+    {
+        body_A->previous_position = body_A->position - body_A->velocity * dt;
+        body_B->previous_position = body_B->position - body_B->velocity * dt;
+    }
     // 4. LOW-VELOCITY ELIMINATION (Sleeping)
     if (std::fabs(body_A->velocity.x) < VELOCITY_EPSILON)
         body_A->velocity.x = 0.0f;
@@ -235,26 +245,58 @@ void collisionSystem::solve_boundary_contacts(world &simulation_world)
     {
         if (current_body.inv_mass == 0.0f)
             continue;
-
+        // Use world grid bounds as the world boundaries
+        float min_x = simulation_world.grid_info.min_x;
+        float max_x = simulation_world.grid_info.max_x;
+        float min_y = simulation_world.grid_info.min_y;
+        float max_y = simulation_world.grid_info.max_y;
+        // 1) Ground at Y = 0.0f (legacy behavior) - keeps existing scenes working
         const float ground_y_limit = 0.0f;
-
         if (current_body.position.y - current_body.radius < ground_y_limit)
         {
-            // 1. Position correction
             current_body.position.y = ground_y_limit + current_body.radius;
-
-            // 2. Velocity resolution (bounce)
             if (current_body.velocity.y < 0.0f)
             {
-                float applied_restitution = current_body.restitution;
-                current_body.velocity.y = -current_body.velocity.y * applied_restitution;
+                current_body.velocity.y = -current_body.velocity.y * current_body.restitution;
             }
+        }
 
-            // 3. Low-velocity elimination
-            if (std::fabs(current_body.velocity.y) < VELOCITY_EPSILON)
-            {
-                current_body.velocity.y = 0.0f;
-            }
+        // 2) Walls / ceiling using world grid bounds
+        // Left wall
+        if (current_body.position.x - current_body.radius < min_x)
+        {
+            current_body.position.x = min_x + current_body.radius;
+            if (current_body.velocity.x < 0.0f)
+                current_body.velocity.x = -current_body.velocity.x * current_body.restitution;
+        }
+
+        // Right wall
+        if (current_body.position.x + current_body.radius > max_x)
+        {
+            current_body.position.x = max_x - current_body.radius;
+            if (current_body.velocity.x > 0.0f)
+                current_body.velocity.x = -current_body.velocity.x * current_body.restitution;
+        }
+
+        // Top (ceiling)
+        if (current_body.position.y + current_body.radius > max_y)
+        {
+            current_body.position.y = max_y - current_body.radius;
+            if (current_body.velocity.y > 0.0f)
+                current_body.velocity.y = -current_body.velocity.y * current_body.restitution;
+        }
+
+        // Low-velocity elimination per axis
+        if (std::fabs(current_body.velocity.x) < VELOCITY_EPSILON)
+            current_body.velocity.x = 0.0f;
+        if (std::fabs(current_body.velocity.y) < VELOCITY_EPSILON)
+            current_body.velocity.y = 0.0f;
+
+        // Sync previous_position with new velocity so Verlet reflects the bounce
+        float dt = simulation_world.delta_time;
+        if (dt > 0.0f)
+        {
+            current_body.previous_position = current_body.position - current_body.velocity * dt;
         }
     }
 }
