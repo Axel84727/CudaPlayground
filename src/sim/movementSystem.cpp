@@ -20,7 +20,25 @@ void movementSystem::verlet_integration(world &simulation_world)
         }
 
         // 2. Calculation of Total Acceleration
+        // Start with global gravity
         vec2 total_acceleration = simulation_world.gravity_vector;
+
+        // Apply per-body viscous damping (proportional to velocity): a_damping = -damping * v
+        if (current_body.damping != 0.0f)
+        {
+            total_acceleration = total_acceleration - (current_body.velocity * current_body.damping);
+        }
+
+        // Apply simple friction-like damping (approx Coulomb): a_friction = -friction * normalize(v) * |v|
+        if (current_body.friction != 0.0f)
+        {
+            float speed = std::sqrt(current_body.velocity.x * current_body.velocity.x + current_body.velocity.y * current_body.velocity.y);
+            if (speed > 1e-6f)
+            {
+                vec2 vel_dir = current_body.velocity * (1.0f / speed);
+                total_acceleration = total_acceleration - (vel_dir * (current_body.friction * speed));
+            }
+        }
 
         // Save the current position before modifying it (will become the previous position)
         vec2 current_position = current_body.position;

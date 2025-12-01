@@ -2,7 +2,7 @@
 
 #include <vector>
 #include <utility>
-#include "ISystem.hpp"
+#include "sim/ISystem.hpp"
 #include "math/vec2.hpp"
 
 class body;

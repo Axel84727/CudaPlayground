@@ -1,6 +1,6 @@
 // src/sim/systemManager.cpp (CORREGIDO)
 
-#include "../include/sim/systemManager.hpp"
+#include "sim/systemManager.hpp"
 #include <utility>
 
 void systemManager::addSystem(std::unique_ptr<ISystem> sys)

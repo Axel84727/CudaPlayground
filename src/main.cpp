@@ -10,79 +10,79 @@
 #include <vector>
 
 // ====================================================================
-// --- CONFIGURACIÓN DE VISUALIZACIÓN ---
+// --- VISUALIZATION CONFIGURATION ---
 // ====================================================================
 
-// Dimensiones de la Ventana
+// Window dimensions
 const int screen_width = 1200;
 const int screen_height = 800;
 
-// Escala del Mundo: 1 unidad de mundo (metro) = 10 píxeles.
+// World scale: 1 world unit (meter) = 10 pixels.
 const float world_scale = 10.0f;
 
-// Puntos centrales de la ventana para mapeo de coordenadas
+// Window center points for coordinate mapping
 const float center_x = screen_width / 2.0f;
 const float center_y = screen_height / 2.0f;
 
 // ====================================================================
-// --- FUNCIONES AUXILIARES ---
+// --- HELPER FUNCTIONS ---
 // ====================================================================
 
 /**
- * @brief Convierte coordenadas de Mundo (Y+ arriba) a coordenadas de Pantalla (Y+ abajo).
- * @param world_pos La posición en el mundo físico.
- * @return vec2 con las coordenadas en píxeles.
+ * @brief Converts World coordinates (Y+ up) to Screen coordinates (Y+ down).
+ * @param world_pos The position in world space.
+ * @return vec2 with pixel coordinates.
  */
 vec2 WorldToScreen(const vec2 &world_pos)
 {
-    // 1. Escalado y Centrado X: Mapea 0,0 del mundo al centro X de la pantalla.
+    // 1. Scale and center X: map world 0,0 to screen center X.
     float screen_x = world_pos.x * world_scale + center_x;
 
-    // 2. Escalado e Inversión Y: Mapea 0,0 del mundo al centro Y, e invierte Y.
+    // 2. Scale and invert Y: map world 0,0 to screen center Y, invert Y.
     float screen_y = center_y - world_pos.y * world_scale;
 
     return vec2(screen_x, screen_y);
 }
 
 /**
- * @brief Función auxiliar para crear un cuerpo con inicialización de inv_mass.
+ * @brief Helper to create a body with inv_mass initialization.
  */
-body create_body(float pos_x, float pos_y, float vel_x, float vel_y, float mass, float radius, float restitution)
+body create_body(float pos_x, float pos_y, float vel_x, float vel_y, float mass, float radius, float restitution, float damping = 0.0f, float friction = 0.0f)
 {
     float inv_mass = (mass > 0.0f) ? 1.0f / mass : 0.0f;
-    // La aceleración inicial se pone en 0, ya que Verlet la calcula a partir de la fuerza.
-    return body(vec2(pos_x, pos_y), vec2(vel_x, vel_y), vec2(0, 0), mass, inv_mass, radius, restitution);
+    // Initial acceleration set to 0, since Verlet computes it from forces.
+    return body(vec2(pos_x, pos_y), vec2(vel_x, vel_y), vec2(0, 0), mass, inv_mass, radius, restitution, damping, friction);
 }
 
 // ====================================================================
-// --- BUCLE PRINCIPAL ---
+// --- MAIN LOOP ---
 // ====================================================================
 
 int main()
 {
-    // --- 1. Inicialización de raylib ---
+    // --- 1. Initialize raylib ---
     InitWindow(screen_width, screen_height, "Physics Engine (Verlet + raylib)");
-    SetTargetFPS(144); // FPS de renderizado
+    SetTargetFPS(144); // render FPS
 
-    // --- 2. Inicialización de la Simulación (Mundo Físico) ---
+    // --- 2. Simulation Initialization (Physical World) ---
 
-    // Configuración
+    // Configuration
     const vec2 gravity = vec2(0.0f, -9.8f);
-    const float fixed_dt = 1.0f / 60.0f; // Paso de tiempo fijo para la física (60Hz)
+    const float fixed_dt = 1.0f / 60.0f; // fixed time step for physics (60Hz)
 
-    // Cuerpos Iniciales:
+    // Initial bodies:
     std::vector<body> bodies;
 
-    // Bola principal cayendo (rebota)
+    // Main falling ball (bounces)
     bodies.push_back(create_body(0.0f, 40.0f, 0.0f, 0.0f, 1.0f, 2.0f, 0.8f));
 
-    // Bola de colisión elástica
+    // Elastic collision ball
     bodies.push_back(create_body(15.0f, 40.0f, -5.0f, 0.0f, 1.0f, 2.0f, 1.0f));
 
-    // Bola de colisión inelástica (va hacia la izquierda)
+    // Inelastic collision ball (heading left)
     bodies.push_back(create_body(-15.0f, 40.0f, 5.0f, 0.0f, 1.0f, 2.0f, 0.5f));
 
-    // Muro estático central (inv_mass = 0)
+    // Central static wall (inv_mass = 0)
     // bodies.push_back(create_body(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 10.0f, 0.0f));
 
     world sim_world(bodies, gravity, fixed_dt);
@@ -112,26 +112,26 @@ int main()
         sim_world.grid.resize(totalCells);
     }
 
-    // Inicialización de previous_position para la primera ejecución de Verlet
+    // Initialize previous_position for the first Verlet step
     for (auto &b : sim_world.bodies)
     {
-        // CORRECCIN CR	TICA DE VERLET:
-        // Establecer previous_position para reflejar la velocidad inicial (si la hay).
+        // CRITICAL VERLET CORRECTION:
+        // Set previous_position to reflect initial velocity (if any).
         // p_old = p_curr - v_init * dt
         b.previous_position = b.position - b.velocity * sim_world.delta_time;
     }
 
-    // Configuración de Sistemas
+    // Systems setup
     systemManager manager;
     manager.addSystem(std::make_unique<movementSystem>());
     manager.addSystem(std::make_unique<collisionSystem>());
 
     float accumulator = 0.0f;
-    // --- Selección y UI en pantalla ---
+    // --- Selection and on-screen UI ---
     int selected_body_index = -1;
     auto select_body_at_screen = [&](int mx, int my) -> int
     {
-        // Convierte pantalla a mundo
+        // Convert screen to world
         float wx = (mx - center_x) / world_scale;
         float wy = (center_y - my) / world_scale;
         vec2 click_world(wx, wy);
@@ -166,15 +166,20 @@ int main()
     static float spawn_mass = 1.0f;
     static float spawn_radius = 2.0f;
     static float spawn_restitution = 0.8f;
+    static float spawn_damping = 0.0f;
+    static float spawn_friction = 0.0f;
+    // colors removed - rendering will use fixed colors (BLUE for dynamic, RED for static)
 
-    // --- 3. Bucle Principal de Renderizado y Simulación ---
+    // Other code continues...
+
+    // --- 3. Main render and simulation loop ---
     while (!WindowShouldClose())
     {
 
-        // --- A. Time Stepping (Física estable con paso fijo) ---
+        // --- A. Time Stepping (Stable physics with fixed step) ---
         accumulator += GetFrameTime();
 
-        // --- Controles de pausa/step/snapshot ---
+        // --- Pause/step/snapshot controls ---
         static bool paused = false;
         static bool step_next = false;
         static std::vector<body> snapshot;
@@ -214,7 +219,7 @@ int main()
         {
             if (!paused || step_next)
             {
-                manager.update(sim_world, fixed_dt); // Actualiza la física
+                manager.update(sim_world, fixed_dt); // Update physics
                 step_next = false;
             }
             accumulator -= fixed_dt;
@@ -240,7 +245,7 @@ int main()
                 b.previous_position = b.position - b.velocity * dt;
         }
 
-        // --- INPUT: Drag / Spawn / Selección y modificación de propiedades ---
+        // --- INPUT: Drag / Spawn / Selection and property modification ---
         // Drag start (smooth)
 
         if (IsMouseButtonDown(MOUSE_LEFT_BUTTON))
@@ -297,17 +302,13 @@ int main()
         }
 
         // Spawn new body with SPACE (at mouse)
-        static float spawn_mass = 1.0f;
-        static float spawn_radius = 2.0f;
-        static float spawn_restitution = 0.8f;
-
         if (IsKeyPressed(KEY_SPACE))
         {
             int mx = GetMouseX();
             int my = GetMouseY();
             float wx = (mx - center_x) / world_scale;
             float wy = (center_y - my) / world_scale;
-            sim_world.bodies.push_back(create_body(wx, wy, 0.0f, 0.0f, spawn_mass, spawn_radius, spawn_restitution));
+            sim_world.bodies.push_back(create_body(wx, wy, 0.0f, 0.0f, spawn_mass, spawn_radius, spawn_restitution, spawn_damping, spawn_friction));
             auto &nb = sim_world.bodies.back();
             float dt = sim_world.delta_time;
             if (dt > 0.0f)
@@ -327,6 +328,16 @@ int main()
             spawn_radius = std::max(0.1f, spawn_radius - 0.1f);
         if (IsKeyPressed(KEY_SIX))
             spawn_radius += 0.1f;
+        // Spawn damping/friction keys: 7/8 damping -, + ; 9/0 friction -, +
+        if (IsKeyPressed(KEY_SEVEN))
+            spawn_damping = std::max(0.0f, spawn_damping - 0.05f);
+        if (IsKeyPressed(KEY_EIGHT))
+            spawn_damping += 0.05f;
+        if (IsKeyPressed(KEY_NINE))
+            spawn_friction = std::max(0.0f, spawn_friction - 0.05f);
+        if (IsKeyPressed(KEY_ZERO))
+            spawn_friction += 0.05f;
+        // color controls removed
 
         if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON))
         {
@@ -341,13 +352,13 @@ int main()
             bool changed = false;
             body &sel = sim_world.bodies[selected_body_index];
 
-            // Ajustes: M/m = masa +/-, R/r = restitution +/-, S/s = radius +/-
+            // Adjustments: M/B mass +/-, R/T restitution +/-, S/A radius +/-
             if (IsKeyPressed(KEY_M))
             {
                 sel.mass += 0.1f;
                 changed = true;
             }
-            if (IsKeyPressed(KEY_B)) // pequeña masa abajo (usamos B como minúscula alternativa)
+            if (IsKeyPressed(KEY_B)) // alternative for lowercase b
             {
                 sel.mass = std::max(0.0f, sel.mass - 0.1f);
                 changed = true;
@@ -357,7 +368,7 @@ int main()
                 sel.restitution = std::min(1.0f, sel.restitution + 0.05f);
                 changed = true;
             }
-            if (IsKeyPressed(KEY_T)) // R minúscula alternativa
+            if (IsKeyPressed(KEY_T)) // alternative for decreasing restitution
             {
                 sel.restitution = std::max(0.0f, sel.restitution - 0.05f);
                 changed = true;
@@ -367,15 +378,48 @@ int main()
                 sel.radius = sel.radius + 0.1f;
                 changed = true;
             }
-            if (IsKeyPressed(KEY_A)) // s minúscula alternativa
+            if (IsKeyPressed(KEY_A)) // alternative for decreasing radius
             {
                 sel.radius = std::max(0.1f, sel.radius - 0.1f);
                 changed = true;
             }
 
+            // Damping adjustments: Y increase, U decrease
+            if (IsKeyPressed(KEY_Y))
+            {
+                sel.damping = std::max(0.0f, sel.damping - 0.01f);
+                changed = true;
+            }
+            if (IsKeyPressed(KEY_U))
+            {
+                sel.damping += 0.01f;
+                changed = true;
+            }
+            // Friction adjustments: G increase, H decrease
+            if (IsKeyPressed(KEY_G))
+            {
+                sel.friction = std::max(0.0f, sel.friction - 0.01f);
+                changed = true;
+            }
+            if (IsKeyPressed(KEY_H))
+            {
+                sel.friction += 0.01f;
+                changed = true;
+            }
+
+            // Delete selected body (DEL or X)
+            if (IsKeyPressed(KEY_X) || IsKeyPressed(KEY_DELETE))
+            {
+                sim_world.bodies.erase(sim_world.bodies.begin() + selected_body_index);
+                selected_body_index = -1;
+                continue; // skip further handling for this frame
+            }
+
+            // color controls removed
+
             if (changed)
             {
-                // Recalcular inv_mass y sincronizar previous_position
+                // Recompute inv_mass and synchronize previous_position
                 sel.inv_mass = (sel.mass > 0.0f) ? 1.0f / sel.mass : 0.0f;
                 float dt = sim_world.delta_time;
                 if (dt > 0.0f)
@@ -385,58 +429,58 @@ int main()
             }
         }
 
-        // --- B. Renderizado (Visualización) ---
+        // --- B. Rendering (Visualization) ---
         BeginDrawing();
         ClearBackground(DARKGRAY);
 
-        // 1. Dibuja el suelo (Ground_Y_Limit = 0.0f en la simulación)
+        // 1. Draw the ground (Ground_Y_Limit = 0.0f in the simulation)
         vec2 ground_screen_pos = WorldToScreen(vec2(0.0f, 0.0f));
-        // Dibujamos una línea blanca en la posición 0.0f del mundo
+        // Draw a white line at world Y = 0.0f
         DrawLine(0, (int)ground_screen_pos.y, screen_width, (int)ground_screen_pos.y, WHITE);
         DrawText("Ground (Y = 0.0m)", 10, (int)ground_screen_pos.y - 20, 20, WHITE);
 
-        // 2. Dibuja los cuerpos (y etiquetas)
+        // 2. Draw bodies (and labels)
         for (size_t i = 0; i < sim_world.bodies.size(); ++i)
         {
             const auto &b = sim_world.bodies[i];
             vec2 screen_pos = WorldToScreen(b.position);
             int screen_radius = (int)(b.radius * world_scale);
 
-            // Determinar color (Rojo si es estático, Azul si es dinámico)
-            Color color = (b.inv_mass == 0.0f) ? RED : BLUE;
+            // Use fixed color per-body type: static=RED, dynamic=BLUE
+            Color draw_color = (b.inv_mass == 0.0f) ? RED : BLUE;
 
-            // Dibuja el círculo principal
-            DrawCircle((int)screen_pos.x, (int)screen_pos.y, screen_radius, color);
-            // Dibuja el contorno
+            // Draw main circle
+            DrawCircle((int)screen_pos.x, (int)screen_pos.y, screen_radius, draw_color);
+            // Draw outline
             DrawCircleLines((int)screen_pos.x, (int)screen_pos.y, screen_radius, BLACK);
 
-            // Etiqueta con id y masa encima del cuerpo
+            // Label with id and mass above the body
             DrawText(TextFormat("#%d m:%.2f", (int)i, b.mass), (int)screen_pos.x - screen_radius, (int)screen_pos.y - screen_radius - 18, 12, WHITE);
 
-            // Resaltar si es el seleccionado
+            // Highlight if selected
             if ((int)i == selected_body_index)
             {
                 DrawCircleLines((int)screen_pos.x, (int)screen_pos.y, screen_radius + 4, YELLOW);
-                // Marca con flecha o rectángulo pequeño
+                // Mark with small label
                 DrawText("SELECTED", (int)screen_pos.x - screen_radius, (int)screen_pos.y + screen_radius + 6, 12, YELLOW);
             }
         }
 
-        // Si no hay seleccionado, mostrar help breve
+        // If none selected, show brief help
         if (selected_body_index < 0)
         {
             DrawText("Click a body to select it. Keys: M/B mass +/-, R/T restitution +/-, S/A radius +/-", 10, screen_height - 24, 14, LIGHTGRAY);
         }
 
-        // 3. Dibuja el FPS
+        // 3. Draw FPS
         DrawFPS(10, 10);
         DrawText("Fixed DT: 1/60s", 10, 35, 20, WHITE);
-        // Mostrar estado de pausa/snapshot
-        // (replicar la variable paused consultando el estado de la tecla no es posible aquí, asumimos tecla toggles)
-        // Dibujar ayuda rápida
+        // Show pause/snapshot state
+        // (replicating the paused variable by querying the key state here is not possible, we assume the key toggles)
+        // Draw quick help
         DrawText("P: Pause/Resume  N: Step (when paused)  O: Save snapshot  L: Load snapshot", 10, 60, 14, LIGHTGRAY);
 
-        // 4. Panel de propiedades (si hay seleccionado)
+        // 4. Properties panel (if selected)
         if (selected_body_index >= 0 && selected_body_index < (int)sim_world.bodies.size())
         {
             const body &sel = sim_world.bodies[selected_body_index];
@@ -448,13 +492,19 @@ int main()
             DrawText(TextFormat("InvMass: %.4f", sel.inv_mass), panel_x, panel_y + 44, 16, WHITE);
             DrawText(TextFormat("Radius: %.2f m", sel.radius), panel_x, panel_y + 64, 16, WHITE);
             DrawText(TextFormat("Restitution: %.2f", sel.restitution), panel_x, panel_y + 84, 16, WHITE);
-            DrawText("Keys: M/B mass +/-, R/T restitution +/-, S/A radius +/-", panel_x, panel_y + 110, 12, LIGHTGRAY);
+            DrawText(TextFormat("Damping: %.2f", sel.damping), panel_x, panel_y + 104, 14, WHITE);
+            DrawText(TextFormat("Friction: %.2f", sel.friction), panel_x, panel_y + 124, 14, WHITE);
+            DrawText("Keys: M/B mass +/-, R/T restitution +/-, S/A radius +/-, Y/U damping, G/H friction", panel_x, panel_y + 144, 10, LIGHTGRAY);
         }
+
+        // Show spawn params quick info
+        DrawText(TextFormat("Spawn - mass:%.2f r:%.2f rest:%.2f damp:%.2f fric:%.2f (SPACE to spawn)", spawn_mass, spawn_radius, spawn_restitution, spawn_damping, spawn_friction), 10, 80, 12, LIGHTGRAY);
+        // spawn color removed
 
         EndDrawing();
     }
 
-    // --- 4. Liberación de Recursos ---
+    // --- 4. Resource cleanup ---
     CloseWindow();
     return 0;
 }

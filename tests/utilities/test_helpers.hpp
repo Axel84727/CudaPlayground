@@ -19,7 +19,8 @@ inline void print_vec2(const vec2 &v)
 inline body create_body(float pos_x, float pos_y, float vel_x, float vel_y, float masa, float radio, float restitucion = 1.0f)
 {
     float inv_mass = (masa > 0.0f) ? 1.0f / masa : 0.0f;
-    return body(vec2(pos_x, pos_y), vec2(vel_x, vel_y), vec2(0, 0), masa, inv_mass, radio, restitucion);
+    // default damping, friction for tests
+    return body(vec2(pos_x, pos_y), vec2(vel_x, vel_y), vec2(0, 0), masa, inv_mass, radio, restitucion, 0.0f, 0.0f);
 }
 
 inline world create_random_world(int num_bodies, const vec2 &gravedad, float dt)

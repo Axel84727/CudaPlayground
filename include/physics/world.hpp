@@ -1,6 +1,6 @@
 #pragma once
 #include <vector>
-#include "body.hpp"
+#include "physics/body.hpp"
 #include "math/vec2.hpp"
 struct GridInfo
 {
