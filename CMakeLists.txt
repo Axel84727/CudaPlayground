@@ -1,19 +1,19 @@
 cmake_minimum_required(VERSION 3.10)
 
-# Define el proyecto principal y habilita C++
-# Comentamos CUDA por ahora, lo descomentamos en el siguiente paso
+# Define the main project and enable C++
+# Keep CUDA commented out for now; we'll uncomment in the next step
 project(CudaPlayground LANGUAGES CXX) 
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ----------------------------------------------------------------
-# 1. CONFIGURACIÓN DE RAYLIB
+# 1. RAYLIB CONFIGURATION
 # ----------------------------------------------------------------
 find_package(raylib REQUIRED)
 
 # ----------------------------------------------------------------
-# 2. DEFINICIÓN DE ARCHIVOS FUENTE
+# 2. SOURCE FILES DEFINITION
 # ----------------------------------------------------------------
 set(SOURCE_FILES
     src/main.cpp
@@ -26,41 +26,41 @@ set(SOURCE_FILES
 )
 
 # ----------------------------------------------------------------
-# 3. CREACIÓN DEL EJECUTABLE
+# 3. CREATE THE EXECUTABLE
 # ----------------------------------------------------------------
 add_executable(CudaPlayground ${SOURCE_FILES})
 
 # ----------------------------------------------------------------
-# 4. INCLUSIÓN Y ENLACE DE LIBRERÍAS
+# 4. INCLUDE DIRECTORIES AND LINK LIBRARIES
 # ----------------------------------------------------------------
 
-# Directorios de Inclusión Públicos (Headers de la simulación)
+# Public include directories (simulation headers)
 target_include_directories(CudaPlayground PUBLIC 
     ${CMAKE_SOURCE_DIR}/include
 )
 
-# Enlace de Librerías (Raylib, math, etc.) al ejecutable final
+# Link libraries (raylib, math, etc.) to the final executable
 target_link_libraries(CudaPlayground PUBLIC 
     ${raylib_LIBRARIES} 
     m 
 )
 
-# Directorios de Inclusión de Raylib
+# Raylib include directories
 target_include_directories(CudaPlayground PUBLIC ${raylib_INCLUDE_DIRS})
 
 
 # ----------------------------------------------------------------
-# 5. CONFIGURACIÓN DE PRUEBAS
+# 5. TESTS CONFIGURATION
 # ----------------------------------------------------------------
 add_subdirectory(tests)
 
 
 # ----------------------------------------------------------------
-# 6. CONFIGURACIÓN FUTURA DE CUDA (DESCOMENTAR EN LA PRÓXIMA FASE)
+# 6. FUTURE CUDA CONFIGURATION (UNCOMMENT IN THE NEXT PHASE)
 # ----------------------------------------------------------------
-# # Habilita el compilador de CUDA (nvcc)
+# # Enable the CUDA compiler (nvcc)
 # project(CudaPlayground LANGUAGES CXX CUDA)
 
-# # El estandar de C++ para CUDA 
+# # C++ standard for CUDA
 # set(CMAKE_CUDA_STANDARD 17)
 # set(CMAKE_CUDA_STANDARD_REQUIRED ON)
