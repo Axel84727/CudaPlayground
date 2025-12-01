@@ -48,19 +48,33 @@ make -j$(nproc)
 
 If CMake can't find Raylib, set `raylib_DIR` or `CMAKE_PREFIX_PATH` to the location where raylib was installed.
 
-Runtime controls (useful keybindings implemented in the simulator):
+Controls (keys and interactions)
 
-- P : Pause / Resume simulation
-- N : Advance one physics step (when paused)
-- O : Save snapshot (in-memory)
-- L : Load previously saved snapshot
-- SPACE : Spawn a new body at mouse position
-- 1 / 2 : Decrease / Increase spawn mass
-- 3 / 4 : Decrease / Increase spawn restitution
-- 5 / 6 : Decrease / Increase spawn radius
-- M / B : Increase / Decrease mass of selected body
-- R / T : Increase / Decrease restitution of selected body
-- S / A : Increase / Decrease radius of selected body
+The following keys and mouse actions are implemented in the simulator (useful both for the visual demo and local testing):
+
+- P : Pause / Resume the simulation
+- N : Advance one physics step while paused
+- O : Save an in-memory snapshot
+- L : Load the previously saved snapshot
+- Space : Spawn a new body at the mouse cursor position
+- 1 / 2 : Decrease / Increase default spawn mass
+- 3 / 4 : Decrease / Increase default spawn restitution
+- 5 / 6 : Decrease / Increase default spawn radius
+- Left click : Select a body
+- Click and drag (left) : Drag / throw a body. Release to apply velocity based on mouse history
+- Mouse extra buttons (non-standard): may be supported depending on platform
+- M / B : Increase / Decrease mass of the selected body
+- R / T : Increase / Decrease restitution of the selected body
+- S / A : Increase / Decrease radius of the selected body
+- D / F : Increase / Decrease damping (air resistance) of the selected body
+- G / H : Increase / Decrease friction coefficient of the selected body
+- Delete / X : Remove the selected body
+
+Interaction notes:
+
+- When impulses are applied (collisions, throwing a body, or direct velocity edits) the Verlet integrator synchronizes the previous position internally to keep simulation consistent.
+- Bodies bounce using impulse resolution plus positional correction to avoid penetration (slop + percent). Each body has its own restitution.
+- If you change `GridInfo` or `world_scale`, remember to keep world-to-window mapping consistent.
 
 Notes
 
