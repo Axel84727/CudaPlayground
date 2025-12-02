@@ -17,7 +17,6 @@ find_package(raylib REQUIRED)
 # ----------------------------------------------------------------
 set(SOURCE_FILES
     src/main.cpp
-    src/math/vec2.cpp 
     src/physics/body.cpp 
     src/physics/world.cpp 
     src/sim/movementSystem.cpp 
@@ -54,6 +53,11 @@ target_include_directories(CudaPlayground PUBLIC ${raylib_INCLUDE_DIRS})
 # ----------------------------------------------------------------
 add_subdirectory(tests)
 
+# Ensure tests are discoverable by ctest even when using the build directory directly
+enable_testing()
+# Explicitly add test referencing the built test executable
+add_test(NAME run_tests COMMAND ${CMAKE_BINARY_DIR}/tests/run_tests)
+
 # ----------------------------------------------------------------
 # Benchmark target (headless, no Raylib)
 # ----------------------------------------------------------------
@@ -63,7 +67,6 @@ option(BUILD_BENCHMARK "Build headless benchmark executable" ON)
 if(BUILD_BENCHMARK)
     add_executable(benchmark
         tools/benchmark.cpp
-        src/math/vec2.cpp
         src/physics/body.cpp
         src/physics/world.cpp
         src/sim/movementSystem.cpp
