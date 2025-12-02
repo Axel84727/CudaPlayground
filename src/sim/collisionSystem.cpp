@@ -1,5 +1,6 @@
 #include "sim/collisionSystem.hpp"
 #include "physics/world.hpp"
+#include "physics/body.hpp"
 #include "math/vec2.hpp"
 #include <iostream>
 #include <cmath>
@@ -11,8 +12,8 @@
 // ====================================================================
 // It's recommended to move these values to private members or a configuration class.
 const float POSITION_CORRECTION_SLOP = 0.001f;  // Minimum penetration before correcting
-const float POSITION_CORRECTION_PERCENT = 0.4f; // Percentage of penetration to correct
-const float VELOCITY_EPSILON = 1e-5f;           // Threshold to snap velocity to zero
+const float POSITION_CORRECTION_PERCENT = 0.2f; // Percentage of penetration to correct (smaller to avoid energy loss)
+const float VELOCITY_EPSILON = 1e-6f;           // Threshold to snap velocity to zero (smaller to avoid early sleeping)
 
 // ====================================================================
 // --- CONSTRUCTOR/DESTRUCTOR ---
@@ -35,12 +36,14 @@ void collisionSystem::clear_spatial_grid(world &simulation_world)
 
 void collisionSystem::populate_spatial_grid(world &simulation_world)
 {
-    for (auto &current_body : simulation_world.bodies)
+    size_t n = simulation_world.position_x.size();
+    for (size_t i = 0; i < n; ++i)
     {
-        int grid_index = simulation_world.get_grid_index(current_body.position);
+        vec2 pos(simulation_world.position_x[i], simulation_world.position_y[i]);
+        int grid_index = simulation_world.get_grid_index(pos);
         if (grid_index >= 0)
         {
-            simulation_world.grid[grid_index].push_back(&current_body);
+            simulation_world.grid[grid_index].push_back((int)i);
         }
     }
 }
@@ -49,9 +52,9 @@ void collisionSystem::populate_spatial_grid(world &simulation_world)
 // --- BROAD PHASE: Generate Candidate Pairs ---
 // ====================================================================
 
-std::vector<std::pair<body *, body *>> collisionSystem::broad_phase_generate_pairs(world &simulation_world)
+std::vector<std::pair<int, int>> collisionSystem::broad_phase_generate_pairs(world &simulation_world)
 {
-    std::vector<std::pair<body *, body *>> potential_collision_pairs;
+    std::vector<std::pair<int, int>> potential_collision_pairs;
 
     int num_cells_x = simulation_world.grid_info.num_cells_x;
     int num_cells_y = simulation_world.grid_info.num_cells_y;
@@ -87,11 +90,11 @@ std::vector<std::pair<body *, body *>> collisionSystem::broad_phase_generate_pai
             int neighbor_index = neighbor_cell_y * num_cells_x + neighbor_cell_x;
             auto &neighbor_cell_bodies = simulation_world.grid[neighbor_index];
 
-            for (body *body_A : current_cell_bodies)
+            for (int idxA : current_cell_bodies)
             {
-                for (body *body_B : neighbor_cell_bodies)
+                for (int idxB : neighbor_cell_bodies)
                 {
-                    potential_collision_pairs.emplace_back(body_A, body_B);
+                    potential_collision_pairs.emplace_back(idxA, idxB);
                 }
             }
         }
@@ -99,11 +102,11 @@ std::vector<std::pair<body *, body *>> collisionSystem::broad_phase_generate_pai
         // 2. Check within the same cell
         for (size_t i = 0; i < current_cell_bodies.size(); ++i)
         {
-            body *body_A = current_cell_bodies[i];
+            int idxA = current_cell_bodies[i];
             for (size_t j = i + 1; j < current_cell_bodies.size(); ++j)
             {
-                body *body_B = current_cell_bodies[j];
-                potential_collision_pairs.emplace_back(body_A, body_B);
+                int idxB = current_cell_bodies[j];
+                potential_collision_pairs.emplace_back(idxA, idxB);
             }
         }
     }
@@ -115,12 +118,14 @@ std::vector<std::pair<body *, body *>> collisionSystem::broad_phase_generate_pai
 // --- CIRCLE-CIRCLE CHECK (Narrow Phase Detection) ---
 // ====================================================================
 
-bool collisionSystem::check_for_overlap(body *body_A, body *body_B, world &simulation_world)
+bool collisionSystem::check_for_overlap(int idxA, int idxB, world &simulation_world)
 {
-    vec2 displacement_vector = body_A->position - body_B->position;
+    vec2 a(simulation_world.position_x[idxA], simulation_world.position_y[idxA]);
+    vec2 b(simulation_world.position_x[idxB], simulation_world.position_y[idxB]);
+    vec2 displacement_vector = a - b;
     float distance_squared = dot(displacement_vector, displacement_vector); // Avoid sqrt()
 
-    float sum_of_radii = body_A->radius + body_B->radius;
+    float sum_of_radii = simulation_world.radius[idxA] + simulation_world.radius[idxB];
     float sum_of_radii_squared = sum_of_radii * sum_of_radii;
 
     return distance_squared <= sum_of_radii_squared;
@@ -132,107 +137,128 @@ bool collisionSystem::check_for_overlap(body *body_A, body *body_B, world &simul
 
 void collisionSystem::narrow_phase_check_and_resolve(world &simulation_world)
 {
+    // Broad phase timing
+    auto t_b0 = std::chrono::high_resolution_clock::now();
     auto potential_pairs = broad_phase_generate_pairs(simulation_world);
+    auto t_b1 = std::chrono::high_resolution_clock::now();
+    auto broad_us = std::chrono::duration_cast<std::chrono::microseconds>(t_b1 - t_b0).count();
+    simulation_world.broad_phase_us = (unsigned long long)broad_us;
 
-    for (auto &[body_A, body_B] : potential_pairs)
+    // Narrow phase timing
+    auto t_n0 = std::chrono::high_resolution_clock::now();
+    for (auto &[idxA, idxB] : potential_pairs)
     {
-        // If both bodies are static (infinite mass), skip resolution
-        if (body_A->inv_mass == 0.0f && body_B->inv_mass == 0.0f)
-        {
+        float invA = simulation_world.inv_mass[idxA];
+        float invB = simulation_world.inv_mass[idxB];
+        if (invA == 0.0f && invB == 0.0f)
             continue;
-        }
 
-        if (check_for_overlap(body_A, body_B, simulation_world))
+        if (check_for_overlap(idxA, idxB, simulation_world))
         {
-            resolve_contact_with_impulse(body_A, body_B, simulation_world);
+            auto t_r0 = std::chrono::high_resolution_clock::now();
+            resolve_contact_with_impulse(idxA, idxB, simulation_world);
+            auto t_r1 = std::chrono::high_resolution_clock::now();
+            auto resolve_us = std::chrono::duration_cast<std::chrono::microseconds>(t_r1 - t_r0).count();
+            simulation_world.resolve_phase_us += (unsigned long long)resolve_us;
         }
     }
+    auto t_n1 = std::chrono::high_resolution_clock::now();
+    auto narrow_us = std::chrono::duration_cast<std::chrono::microseconds>(t_n1 - t_n0).count();
+    simulation_world.narrow_phase_us = (unsigned long long)narrow_us;
 }
 
 // ====================================================================
 // --- CONTACT RESOLUTION (Impulse and Position Correction) ---
 // ====================================================================
 
-void collisionSystem::resolve_contact_with_impulse(body *body_A, body *body_B, world &simulation_world)
+void collisionSystem::resolve_contact_with_impulse(int idxA, int idxB, world &simulation_world)
 {
-    // 1. CONTACT DATA CALCULATION (Manifold)
-    vec2 displacement_vector = body_B->position - body_A->position;
+    vec2 posA(simulation_world.position_x[idxA], simulation_world.position_y[idxA]);
+    vec2 posB(simulation_world.position_x[idxB], simulation_world.position_y[idxB]);
+    vec2 displacement_vector = posB - posA;
     float distance_squared = dot(displacement_vector, displacement_vector);
 
     if (distance_squared <= 1e-6f)
         return;
 
     float distance = std::sqrt(distance_squared);
-    float sum_of_radii = body_A->radius + body_B->radius;
+    float sum_of_radii = simulation_world.radius[idxA] + simulation_world.radius[idxB];
     float penetration_depth = sum_of_radii - distance;
-
     if (penetration_depth <= 0.0f)
         return;
 
     vec2 collision_normal = displacement_vector * (1.0f / distance);
 
-    float inverse_mass_A = body_A->inv_mass;
-    float inverse_mass_B = body_B->inv_mass;
+    float inverse_mass_A = simulation_world.inv_mass[idxA];
+    float inverse_mass_B = simulation_world.inv_mass[idxB];
     float inverse_mass_sum = inverse_mass_A + inverse_mass_B;
-
     if (inverse_mass_sum <= 0.0f)
         return;
 
-    // 2. POSITION CORRECTION (Separate the bodies)
-
-    // Calculate correction, applying "slop" margin for stability
     float correction_magnitude = std::max(penetration_depth - POSITION_CORRECTION_SLOP, 0.0f) / inverse_mass_sum * POSITION_CORRECTION_PERCENT;
-
     vec2 position_correction_vector = collision_normal * correction_magnitude;
 
-    // Apply correction proportional to inverse mass
-    body_A->position = body_A->position - position_correction_vector * inverse_mass_A;
-    body_B->position = body_B->position + position_correction_vector * inverse_mass_B;
+    // Apply correction to SoA positions
+    simulation_world.position_x[idxA] -= position_correction_vector.x * inverse_mass_A;
+    simulation_world.position_y[idxA] -= position_correction_vector.y * inverse_mass_A;
+    simulation_world.position_x[idxB] += position_correction_vector.x * inverse_mass_B;
+    simulation_world.position_y[idxB] += position_correction_vector.y * inverse_mass_B;
 
-    // 3. IMPULSE RESOLUTION (Change of Velocity)
-
-    vec2 relative_velocity = body_B->velocity - body_A->velocity;
+    // velocities
+    vec2 velA(simulation_world.vel_x[idxA], simulation_world.vel_y[idxA]);
+    vec2 velB(simulation_world.vel_x[idxB], simulation_world.vel_y[idxB]);
+    vec2 relative_velocity = velB - velA;
     float velocity_along_normal = dot(relative_velocity, collision_normal);
-
-    // If bodies are already separating, don't apply impulse
     if (velocity_along_normal > 0.0f)
         return;
 
-    float effective_restitution = (body_A->restitution + body_B->restitution) * 0.5f;
+    float effective_restitution = (simulation_world.get_restitution(idxA) + simulation_world.get_restitution(idxB)) * 0.5f;
 
-    // Compute scalar impulse (J)
     float impulse_scalar = -(1.0f + effective_restitution) * velocity_along_normal;
     impulse_scalar /= inverse_mass_sum;
-
-    // J is positive, and collision_normal points from A to B
     vec2 collision_impulse_vector = collision_normal * impulse_scalar;
 
-    // Apply impulse:
-    // Body A: Pushed AWAY from the collision (vector impulse points away from B)
-    body_A->velocity = body_A->velocity - collision_impulse_vector * inverse_mass_A;
+    velA = velA - collision_impulse_vector * inverse_mass_A;
+    velB = velB + collision_impulse_vector * inverse_mass_B;
 
-    // Body B: Pushed ALONG the collision normal (vector impulse points away from A)
-    body_B->velocity = body_B->velocity + collision_impulse_vector * inverse_mass_B;
+    simulation_world.vel_x[idxA] = velA.x;
+    simulation_world.vel_y[idxA] = velA.y;
+    simulation_world.vel_x[idxB] = velB.x;
+    simulation_world.vel_y[idxB] = velB.y;
 
-    // --- IMPORTANT: Keep Verlet integrator consistent ---
-    // After changing velocities via impulses, update previous_position so that
-    // the next Verlet integration will produce the expected positions.
-    // previous_position = position - velocity * delta_time
+    // Update previous positions for Verlet consistency
     float dt = simulation_world.delta_time;
     if (dt > 0.0f)
     {
-        body_A->previous_position = body_A->position - body_A->velocity * dt;
-        body_B->previous_position = body_B->position - body_B->velocity * dt;
+        simulation_world.previous_position_x[idxA] = simulation_world.position_x[idxA] - velA.x * dt;
+        simulation_world.previous_position_y[idxA] = simulation_world.position_y[idxA] - velA.y * dt;
+        simulation_world.previous_position_x[idxB] = simulation_world.position_x[idxB] - velB.x * dt;
+        simulation_world.previous_position_y[idxB] = simulation_world.position_y[idxB] - velB.y * dt;
     }
-    // 4. LOW-VELOCITY ELIMINATION (Sleeping)
-    if (std::fabs(body_A->velocity.x) < VELOCITY_EPSILON)
-        body_A->velocity.x = 0.0f;
-    if (std::fabs(body_A->velocity.y) < VELOCITY_EPSILON)
-        body_A->velocity.y = 0.0f;
-    if (std::fabs(body_B->velocity.x) < VELOCITY_EPSILON)
-        body_B->velocity.x = 0.0f;
-    if (std::fabs(body_B->velocity.y) < VELOCITY_EPSILON)
-        body_B->velocity.y = 0.0f;
+
+    // Ensure positions are nudged slightly outward to avoid exact-contact re-penetration
+    const float BOUNDARY_EPS = 1e-4f;
+    // clamp A
+    float min_x = simulation_world.grid_info.min_x;
+    float max_x = simulation_world.grid_info.max_x;
+    float min_y = simulation_world.grid_info.min_y;
+    float max_y = simulation_world.grid_info.max_y;
+    float rA = simulation_world.radius[idxA];
+    float rB = simulation_world.radius[idxB];
+    simulation_world.position_x[idxA] = std::min(std::max(simulation_world.position_x[idxA], min_x + rA + BOUNDARY_EPS), max_x - rA - BOUNDARY_EPS);
+    simulation_world.position_y[idxA] = std::min(std::max(simulation_world.position_y[idxA], min_y + rA + BOUNDARY_EPS), max_y - rA - BOUNDARY_EPS);
+    simulation_world.position_x[idxB] = std::min(std::max(simulation_world.position_x[idxB], min_x + rB + BOUNDARY_EPS), max_x - rB - BOUNDARY_EPS);
+    simulation_world.position_y[idxB] = std::min(std::max(simulation_world.position_y[idxB], min_y + rB + BOUNDARY_EPS), max_y - rB - BOUNDARY_EPS);
+
+    // 4. LOW-VELOCITY ELIMINATION (Sleeping) - operate on SoA velocities
+    if (std::fabs(simulation_world.vel_x[idxA]) < VELOCITY_EPSILON)
+        simulation_world.vel_x[idxA] = 0.0f;
+    if (std::fabs(simulation_world.vel_y[idxA]) < VELOCITY_EPSILON)
+        simulation_world.vel_y[idxA] = 0.0f;
+    if (std::fabs(simulation_world.vel_x[idxB]) < VELOCITY_EPSILON)
+        simulation_world.vel_x[idxB] = 0.0f;
+    if (std::fabs(simulation_world.vel_y[idxB]) < VELOCITY_EPSILON)
+        simulation_world.vel_y[idxB] = 0.0f;
 }
 
 // ====================================================================
@@ -241,63 +267,75 @@ void collisionSystem::resolve_contact_with_impulse(body *body_A, body *body_B, w
 
 void collisionSystem::solve_boundary_contacts(world &simulation_world)
 {
-    for (body &current_body : simulation_world.bodies)
+    size_t n = simulation_world.position_x.size();
+    float min_x = simulation_world.grid_info.min_x;
+    float max_x = simulation_world.grid_info.max_x;
+    float min_y = simulation_world.grid_info.min_y;
+    float max_y = simulation_world.grid_info.max_y;
+    const float ground_y_limit = 0.0f;
+
+    for (size_t i = 0; i < n; ++i)
     {
-        if (current_body.inv_mass == 0.0f)
+        if (simulation_world.inv_mass[i] == 0.0f)
             continue;
-        // Use world grid bounds as the world boundaries
-        float min_x = simulation_world.grid_info.min_x;
-        float max_x = simulation_world.grid_info.max_x;
-        float min_y = simulation_world.grid_info.min_y;
-        float max_y = simulation_world.grid_info.max_y;
-        // 1) Ground at Y = 0.0f (legacy behavior) - keeps existing scenes working
-        const float ground_y_limit = 0.0f;
-        if (current_body.position.y - current_body.radius < ground_y_limit)
+
+        float px = simulation_world.position_x[i];
+        float py = simulation_world.position_y[i];
+        float vx = simulation_world.vel_x[i];
+        float vy = simulation_world.vel_y[i];
+        float r = simulation_world.radius[i];
+        float restitution = simulation_world.get_restitution(i);
+
+        if (py - r < ground_y_limit)
         {
-            current_body.position.y = ground_y_limit + current_body.radius;
-            if (current_body.velocity.y < 0.0f)
-            {
-                current_body.velocity.y = -current_body.velocity.y * current_body.restitution;
-            }
+            py = ground_y_limit + r;
+            if (vy < 0.0f)
+                vy = -vy * restitution;
         }
 
-        // 2) Walls / ceiling using world grid bounds
-        // Left wall
-        if (current_body.position.x - current_body.radius < min_x)
+        if (px - r < min_x)
         {
-            current_body.position.x = min_x + current_body.radius;
-            if (current_body.velocity.x < 0.0f)
-                current_body.velocity.x = -current_body.velocity.x * current_body.restitution;
+            px = min_x + r;
+            if (vx < 0.0f)
+                vx = -vx * restitution;
         }
 
-        // Right wall
-        if (current_body.position.x + current_body.radius > max_x)
+        if (px + r > max_x)
         {
-            current_body.position.x = max_x - current_body.radius;
-            if (current_body.velocity.x > 0.0f)
-                current_body.velocity.x = -current_body.velocity.x * current_body.restitution;
+            px = max_x - r;
+            if (vx > 0.0f)
+                vx = -vx * restitution;
         }
 
-        // Top (ceiling)
-        if (current_body.position.y + current_body.radius > max_y)
+        if (py + r > max_y)
         {
-            current_body.position.y = max_y - current_body.radius;
-            if (current_body.velocity.y > 0.0f)
-                current_body.velocity.y = -current_body.velocity.y * current_body.restitution;
+            py = max_y - r;
+            if (vy > 0.0f)
+                vy = -vy * restitution;
         }
 
-        // Low-velocity elimination per axis
-        if (std::fabs(current_body.velocity.x) < VELOCITY_EPSILON)
-            current_body.velocity.x = 0.0f;
-        if (std::fabs(current_body.velocity.y) < VELOCITY_EPSILON)
-            current_body.velocity.y = 0.0f;
+        if (std::fabs(vx) < VELOCITY_EPSILON)
+            vx = 0.0f;
+        if (std::fabs(vy) < VELOCITY_EPSILON)
+            vy = 0.0f;
 
-        // Sync previous_position with new velocity so Verlet reflects the bounce
+        simulation_world.position_x[i] = px;
+        simulation_world.position_y[i] = py;
+        simulation_world.vel_x[i] = vx;
+        simulation_world.vel_y[i] = vy;
+
         float dt = simulation_world.delta_time;
         if (dt > 0.0f)
         {
-            current_body.previous_position = current_body.position - current_body.velocity * dt;
+            simulation_world.previous_position_x[i] = px - vx * dt;
+            simulation_world.previous_position_y[i] = py - vy * dt;
         }
+        // small inward nudge to avoid exact contact with boundaries which can cause
+        // re-penetration or sticky behavior due to floating point rounding.
+        const float NUDGE = 1e-4f;
+        simulation_world.position_x[i] = std::min(std::max(simulation_world.position_x[i], min_x + r + NUDGE), max_x - r - NUDGE);
+        simulation_world.position_y[i] = std::min(std::max(simulation_world.position_y[i], min_y + r + NUDGE), max_y - r - NUDGE);
+        // SoA arrays are canonical.
     }
 }
 

@@ -9,7 +9,6 @@ body::body(const vec2 &position_param,
            float restitution_param,
            float damping_param,
            float friction_param)
-    // Lista de inicialización
     : position(position_param),
       previous_position(position_param),
       velocity(velocity_param),
@@ -32,11 +31,11 @@ body::body()
       previous_position(),
       velocity(),
       acceleration(),
-      mass(0.0f),
-      inv_mass(0.0f),
-      radius(0.0f),
-      damping(0.0f),
-      friction(0.0f),
-      restitution(1.0f)
+      mass(1.60f),
+      inv_mass(1.0f / 1.60f),
+      radius(1.80f),
+      damping(0.10f),
+      friction(0.50f),
+      restitution(0.85f)
 {
 }

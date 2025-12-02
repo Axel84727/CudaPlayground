@@ -17,7 +17,7 @@
 const int screen_width = 1200;
 const int screen_height = 800;
 
-// World scale: 1 world unit (meter) = 10 pixels.
+// World scale: 1 world unit (meter) = 10 pixels. (restored original visual scale)
 const float world_scale = 10.0f;
 
 // Window center points for coordinate mapping
@@ -47,7 +47,8 @@ vec2 WorldToScreen(const vec2 &world_pos)
 /**
  * @brief Helper to create a body with inv_mass initialization.
  */
-body create_body(float pos_x, float pos_y, float vel_x, float vel_y, float mass, float radius, float restitution, float damping = 0.0f, float friction = 0.0f)
+// Default parameters set per user request
+body create_body(float pos_x, float pos_y, float vel_x, float vel_y, float mass = 1.60f, float radius = 1.80f, float restitution = 0.85f, float damping = 0.10f, float friction = 0.50f)
 {
     float inv_mass = (mass > 0.0f) ? 1.0f / mass : 0.0f;
     // Initial acceleration set to 0, since Verlet computes it from forces.
@@ -67,7 +68,8 @@ int main()
     // --- 2. Simulation Initialization (Physical World) ---
 
     // Configuration
-    const vec2 gravity = vec2(0.0f, -9.8f);
+    // Global gravity set per user request
+    const vec2 gravity = vec2(0.0f, -41.63f);
     const float fixed_dt = 1.0f / 60.0f; // fixed time step for physics (60Hz)
 
     // Initial bodies:
@@ -85,7 +87,30 @@ int main()
     // Central static wall (inv_mass = 0)
     // bodies.push_back(create_body(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 10.0f, 0.0f));
 
-    world sim_world(bodies, gravity, fixed_dt);
+    // CRITICAL VERLET CORRECTION:
+    // Set previous_position in the initial body vector so add_body will initialize previous positions correctly.
+    for (auto &b : bodies)
+    {
+        b.previous_position = b.position - b.velocity * fixed_dt;
+    }
+
+    // Create an empty SoA-first world and populate from initial bodies via add_body
+    world sim_world;
+    sim_world.gravity_x = gravity.x;
+    sim_world.gravity_y = gravity.y;
+    sim_world.delta_time = fixed_dt;
+    for (auto &b : bodies)
+        sim_world.add_body(b);
+
+    // Debug: print initial SoA contents to help diagnose physics issues
+    std::cout << "SIM_DEBUG: bodies=" << sim_world.size() << " dt=" << sim_world.delta_time << "\n";
+    for (size_t i = 0; i < sim_world.size(); ++i)
+    {
+        std::cout << "SIM_DEBUG: B" << i << " pos=(" << sim_world.position_x[i] << "," << sim_world.position_y[i] << ") ";
+        std::cout << "prev=(" << sim_world.previous_position_x[i] << "," << sim_world.previous_position_y[i] << ") ";
+        std::cout << "vel=(" << sim_world.vel_x[i] << "," << sim_world.vel_y[i] << ") ";
+        std::cout << "mass=" << ((i < sim_world.mass.size()) ? sim_world.mass[i] : 0.0f) << " inv_mass=" << ((i < sim_world.inv_mass.size()) ? sim_world.inv_mass[i] : 0.0f) << "\n";
+    }
 
     // Adjust world grid bounds to match the visible window in world coordinates
     // So that wall/ceiling/ground collisions occur at the screen edges
@@ -112,14 +137,8 @@ int main()
         sim_world.grid.resize(totalCells);
     }
 
-    // Initialize previous_position for the first Verlet step
-    for (auto &b : sim_world.bodies)
-    {
-        // CRITICAL VERLET CORRECTION:
-        // Set previous_position to reflect initial velocity (if any).
-        // p_old = p_curr - v_init * dt
-        b.previous_position = b.position - b.velocity * sim_world.delta_time;
-    }
+    // Note: previous_position was already initialized in the initial bodies vector before
+    // constructing `sim_world` so the SoA previous_position arrays are correct.
 
     // Systems setup
     systemManager manager;
@@ -138,13 +157,16 @@ int main()
 
         float best_dist2 = 1e30f;
         int best_idx = -1;
-        for (size_t i = 0; i < sim_world.bodies.size(); ++i)
+        size_t n = sim_world.size();
+        for (size_t i = 0; i < n; ++i)
         {
-            const auto &b = sim_world.bodies[i];
-            float dx = b.position.x - click_world.x;
-            float dy = b.position.y - click_world.y;
+            float px = sim_world.position_x[i];
+            float py = sim_world.position_y[i];
+            float r = (i < sim_world.radius.size()) ? sim_world.radius[i] : 0.0f;
+            float dx = px - click_world.x;
+            float dy = py - click_world.y;
             float d2 = dx * dx + dy * dy;
-            if (d2 < best_dist2 && d2 <= (b.radius * b.radius))
+            if (d2 < best_dist2 && d2 <= (r * r))
             {
                 best_dist2 = d2;
                 best_idx = (int)i;
@@ -168,6 +190,10 @@ int main()
     static float spawn_restitution = 0.8f;
     static float spawn_damping = 0.0f;
     static float spawn_friction = 0.0f;
+    // Runtime tuning: global damping and gravity scale
+    static float gravity_scale = 1.0f;
+    // Keys: '[' decrease damping, ']' increase damping
+    //       ',' decrease gravity, '.' increase gravity
     // colors removed - rendering will use fixed colors (BLUE for dynamic, RED for static)
 
     // Other code continues...
@@ -196,20 +222,56 @@ int main()
         }
         if (IsKeyPressed(KEY_O))
         {
-            snapshot = sim_world.bodies; // copy current state
+            // copy current state by building an in-memory snapshot from SoA arrays
+            snapshot.clear();
+            size_t n = sim_world.size();
+            snapshot.resize(n);
+            for (size_t i = 0; i < n; ++i)
+            {
+                snapshot[i].position = sim_world.get_position(i);
+                snapshot[i].previous_position = vec2(sim_world.previous_position_x[i], sim_world.previous_position_y[i]);
+                snapshot[i].velocity = vec2(sim_world.vel_x[i], sim_world.vel_y[i]);
+                snapshot[i].acceleration = vec2(sim_world.acc_x[i], sim_world.acc_y[i]);
+                snapshot[i].mass = (i < sim_world.mass.size()) ? sim_world.mass[i] : 0.0f;
+                snapshot[i].inv_mass = (i < sim_world.inv_mass.size()) ? sim_world.inv_mass[i] : 0.0f;
+                snapshot[i].radius = (i < sim_world.radius.size()) ? sim_world.radius[i] : 0.0f;
+                snapshot[i].damping = (i < sim_world.damping.size()) ? sim_world.damping[i] : 0.0f;
+                snapshot[i].friction = (i < sim_world.friction.size()) ? sim_world.friction[i] : 0.0f;
+                snapshot[i].restitution = (i < sim_world.restitution.size()) ? sim_world.restitution[i] : 1.0f;
+            }
         }
         if (IsKeyPressed(KEY_L))
         {
             if (!snapshot.empty())
             {
-                sim_world.bodies = snapshot;
-                // Recompute previous_position for all bodies to keep Verlet consistent
-                for (auto &b : sim_world.bodies)
+                // prepare snapshot: recompute inv_mass and previous_position before restoring
+                for (auto &b : snapshot)
                 {
                     b.inv_mass = (b.mass > 0.0f) ? 1.0f / b.mass : 0.0f;
                     float dt = sim_world.delta_time;
                     if (dt > 0.0f)
                         b.previous_position = b.position - b.velocity * dt;
+                }
+                // Restore by clearing and re-adding bodies (simple approach)
+                // Note: this keeps other per-world state (grid bounds)
+                // but resets per-particle SoA arrays to snapshot values.
+                sim_world.position_x.clear();
+                sim_world.position_y.clear();
+                sim_world.previous_position_x.clear();
+                sim_world.previous_position_y.clear();
+                sim_world.vel_x.clear();
+                sim_world.vel_y.clear();
+                sim_world.acc_x.clear();
+                sim_world.acc_y.clear();
+                sim_world.mass.clear();
+                sim_world.inv_mass.clear();
+                sim_world.radius.clear();
+                sim_world.damping.clear();
+                sim_world.friction.clear();
+                sim_world.restitution.clear();
+                for (auto &b : snapshot)
+                {
+                    sim_world.add_body(b);
                 }
             }
         }
@@ -219,7 +281,22 @@ int main()
         {
             if (!paused || step_next)
             {
+                // Apply runtime gravity scaling before the physics step
+                sim_world.gravity_x = gravity.x * gravity_scale;
+                sim_world.gravity_y = gravity.y * gravity_scale;
                 manager.update(sim_world, fixed_dt); // Update physics
+                static bool printed_after_step = false;
+                if (!printed_after_step)
+                {
+                    std::cout << "SIM_DEBUG_POST: after first update" << "\n";
+                    for (size_t i = 0; i < sim_world.size(); ++i)
+                    {
+                        std::cout << "SIM_DEBUG_POST: B" << i << " pos=(" << sim_world.position_x[i] << "," << sim_world.position_y[i] << ") ";
+                        std::cout << "prev=(" << sim_world.previous_position_x[i] << "," << sim_world.previous_position_y[i] << ") ";
+                        std::cout << "vel=(" << sim_world.vel_x[i] << "," << sim_world.vel_y[i] << ")\n";
+                    }
+                    printed_after_step = true;
+                }
                 step_next = false;
             }
             accumulator -= fixed_dt;
@@ -230,19 +307,27 @@ int main()
         // boundary clamping removed: collisionSystem now handles wall/ground bounces
 
         // Smoothly move selected/dragged body towards mouse while dragging
-        if (dragging && dragging_idx >= 0 && dragging_idx < (int)sim_world.bodies.size())
+        if (dragging && dragging_idx >= 0 && dragging_idx < (int)sim_world.size())
         {
-            body &b = sim_world.bodies[dragging_idx];
+            // Update position: set_position updates SoA arrays.
+            // For velocity/previous_position we update the internal arrays directly.
+            // Acquire new position below and assign via set_position.
             // latest mouse world
             vec2 latest_mouse = mouse_history[(mouse_history_idx - 1 + 8) % 8];
             // lerp factor (0..1) smaller = smoother
             float lerp_f = 0.25f;
-            b.position = b.position * (1.0f - lerp_f) + latest_mouse * lerp_f;
+            vec2 oldpos = sim_world.get_position(dragging_idx);
+            vec2 newpos = oldpos * (1.0f - lerp_f) + latest_mouse * lerp_f;
+            sim_world.set_position(dragging_idx, newpos);
             // zero velocity while dragging to avoid physics fighting the drag
-            b.velocity = vec2(0, 0);
+            sim_world.vel_x[dragging_idx] = 0.0f;
+            sim_world.vel_y[dragging_idx] = 0.0f;
             float dt = sim_world.delta_time;
             if (dt > 0.0f)
-                b.previous_position = b.position - b.velocity * dt;
+            {
+                sim_world.previous_position_x[dragging_idx] = newpos.x - 0.0f * dt;
+                sim_world.previous_position_y[dragging_idx] = newpos.y - 0.0f * dt;
+            }
         }
 
         // --- INPUT: Drag / Spawn / Selection and property modification ---
@@ -273,9 +358,10 @@ int main()
 
         if (IsMouseButtonReleased(MOUSE_LEFT_BUTTON))
         {
-            if (dragging && dragging_idx >= 0 && dragging_idx < (int)sim_world.bodies.size())
+            if (dragging && dragging_idx >= 0 && dragging_idx < (int)sim_world.size())
             {
-                body &b = sim_world.bodies[dragging_idx];
+                // Update velocity on release. We update the SoA velocity and previous_position arrays
+                // and keep internal SoA arrays updated.
                 // compute average mouse velocity from history
                 if (mouse_history_count >= 2)
                 {
@@ -286,16 +372,22 @@ int main()
                     float dt_total = (float)mouse_history_count * (1.0f / 60.0f); // approximate frame dt
                     vec2 mouse_vel = (dt_total > 0.0f) ? delta * (1.0f / dt_total) : vec2(0, 0);
                     // apply a scaled down version as throw velocity
-                    b.velocity = mouse_vel * 0.5f;
+                    sim_world.vel_x[dragging_idx] = (mouse_vel * 0.5f).x;
+                    sim_world.vel_y[dragging_idx] = (mouse_vel * 0.5f).y;
                 }
                 else
                 {
                     // fallback: small nudge
-                    b.velocity = vec2(0, 0);
+                    sim_world.vel_x[dragging_idx] = 0.0f;
+                    sim_world.vel_y[dragging_idx] = 0.0f;
                 }
                 float dt = sim_world.delta_time;
                 if (dt > 0.0f)
-                    b.previous_position = b.position - b.velocity * dt;
+                {
+                    vec2 pos = sim_world.get_position(dragging_idx);
+                    sim_world.previous_position_x[dragging_idx] = pos.x - sim_world.vel_x[dragging_idx] * dt;
+                    sim_world.previous_position_y[dragging_idx] = pos.y - sim_world.vel_y[dragging_idx] * dt;
+                }
             }
             dragging = false;
             dragging_idx = -1;
@@ -308,11 +400,11 @@ int main()
             int my = GetMouseY();
             float wx = (mx - center_x) / world_scale;
             float wy = (center_y - my) / world_scale;
-            sim_world.bodies.push_back(create_body(wx, wy, 0.0f, 0.0f, spawn_mass, spawn_radius, spawn_restitution, spawn_damping, spawn_friction));
-            auto &nb = sim_world.bodies.back();
+            body nb = create_body(wx, wy, 0.0f, 0.0f, spawn_mass, spawn_radius, spawn_restitution, spawn_damping, spawn_friction);
             float dt = sim_world.delta_time;
             if (dt > 0.0f)
                 nb.previous_position = nb.position - nb.velocity * dt;
+            sim_world.add_body(nb);
         }
 
         // Spawn parameter keys: 1/2 mass, 3/4 restitution, 5/6 radius
@@ -328,6 +420,16 @@ int main()
             spawn_radius = std::max(0.1f, spawn_radius - 0.1f);
         if (IsKeyPressed(KEY_SIX))
             spawn_radius += 0.1f;
+        // Tweak global damping
+        if (IsKeyPressed(KEY_LEFT_BRACKET))
+            sim_world.global_damping = std::max(0.0f, sim_world.global_damping - 0.005f);
+        if (IsKeyPressed(KEY_RIGHT_BRACKET))
+            sim_world.global_damping = std::min(0.5f, sim_world.global_damping + 0.005f);
+        // Tweak gravity scale
+        if (IsKeyPressed(KEY_COMMA))
+            gravity_scale = std::max(0.0f, gravity_scale - 0.05f);
+        if (IsKeyPressed(KEY_PERIOD))
+            gravity_scale += 0.05f;
         // Spawn damping/friction keys: 7/8 damping -, + ; 9/0 friction -, +
         if (IsKeyPressed(KEY_SEVEN))
             spawn_damping = std::max(0.0f, spawn_damping - 0.05f);
@@ -347,85 +449,93 @@ int main()
             selected_body_index = idx;
         }
 
-        if (selected_body_index >= 0 && selected_body_index < (int)sim_world.bodies.size())
+        if (selected_body_index >= 0 && selected_body_index < (int)sim_world.size())
         {
             bool changed = false;
-            body &sel = sim_world.bodies[selected_body_index];
 
             // Adjustments: M/B mass +/-, R/T restitution +/-, S/A radius +/-
             if (IsKeyPressed(KEY_M))
             {
-                sel.mass += 0.1f;
+                sim_world.mass[selected_body_index] += 0.1f;
                 changed = true;
             }
             if (IsKeyPressed(KEY_B)) // alternative for lowercase b
             {
-                sel.mass = std::max(0.0f, sel.mass - 0.1f);
+                sim_world.mass[selected_body_index] = std::max(0.0f, sim_world.mass[selected_body_index] - 0.1f);
                 changed = true;
             }
             if (IsKeyPressed(KEY_R))
             {
-                sel.restitution = std::min(1.0f, sel.restitution + 0.05f);
+                if (selected_body_index < sim_world.restitution.size())
+                    sim_world.restitution[selected_body_index] = std::min(1.0f, sim_world.restitution[selected_body_index] + 0.05f);
                 changed = true;
             }
             if (IsKeyPressed(KEY_T)) // alternative for decreasing restitution
             {
-                sel.restitution = std::max(0.0f, sel.restitution - 0.05f);
+                if (selected_body_index < sim_world.restitution.size())
+                    sim_world.restitution[selected_body_index] = std::max(0.0f, sim_world.restitution[selected_body_index] - 0.05f);
                 changed = true;
             }
             if (IsKeyPressed(KEY_S))
             {
-                sel.radius = sel.radius + 0.1f;
+                sim_world.radius[selected_body_index] = sim_world.radius[selected_body_index] + 0.1f;
                 changed = true;
             }
             if (IsKeyPressed(KEY_A)) // alternative for decreasing radius
             {
-                sel.radius = std::max(0.1f, sel.radius - 0.1f);
+                sim_world.radius[selected_body_index] = std::max(0.1f, sim_world.radius[selected_body_index] - 0.1f);
                 changed = true;
             }
 
             // Damping adjustments: Y increase, U decrease
             if (IsKeyPressed(KEY_Y))
             {
-                sel.damping = std::max(0.0f, sel.damping - 0.01f);
+                if (selected_body_index < sim_world.damping.size())
+                    sim_world.damping[selected_body_index] = std::max(0.0f, sim_world.damping[selected_body_index] - 0.01f);
                 changed = true;
             }
             if (IsKeyPressed(KEY_U))
             {
-                sel.damping += 0.01f;
+                if (selected_body_index < sim_world.damping.size())
+                    sim_world.damping[selected_body_index] += 0.01f;
                 changed = true;
             }
             // Friction adjustments: G increase, H decrease
             if (IsKeyPressed(KEY_G))
             {
-                sel.friction = std::max(0.0f, sel.friction - 0.01f);
+                if (selected_body_index < sim_world.friction.size())
+                    sim_world.friction[selected_body_index] = std::max(0.0f, sim_world.friction[selected_body_index] - 0.01f);
                 changed = true;
             }
             if (IsKeyPressed(KEY_H))
             {
-                sel.friction += 0.01f;
+                if (selected_body_index < sim_world.friction.size())
+                    sim_world.friction[selected_body_index] += 0.01f;
                 changed = true;
             }
 
             // Delete selected body (DEL or X)
             if (IsKeyPressed(KEY_X) || IsKeyPressed(KEY_DELETE))
             {
-                sim_world.bodies.erase(sim_world.bodies.begin() + selected_body_index);
+                sim_world.remove_body(selected_body_index);
                 selected_body_index = -1;
                 continue; // skip further handling for this frame
             }
 
-            // color controls removed
-
             if (changed)
             {
-                // Recompute inv_mass and synchronize previous_position
-                sel.inv_mass = (sel.mass > 0.0f) ? 1.0f / sel.mass : 0.0f;
+                // Recompute inv_mass and synchronize previous_position in SoA arrays
+                float massVal = sim_world.mass[selected_body_index];
+                sim_world.inv_mass[selected_body_index] = (massVal > 0.0f) ? 1.0f / massVal : 0.0f;
                 float dt = sim_world.delta_time;
                 if (dt > 0.0f)
                 {
-                    sel.previous_position = sel.position - sel.velocity * dt;
+                    float vx = sim_world.vel_x[selected_body_index];
+                    float vy = sim_world.vel_y[selected_body_index];
+                    sim_world.previous_position_x[selected_body_index] = sim_world.position_x[selected_body_index] - vx * dt;
+                    sim_world.previous_position_y[selected_body_index] = sim_world.position_y[selected_body_index] - vy * dt;
                 }
+                // SoA arrays are canonical. If UI changed SoA arrays above, they are ready.
             }
         }
 
@@ -440,14 +550,14 @@ int main()
         DrawText("Ground (Y = 0.0m)", 10, (int)ground_screen_pos.y - 20, 20, WHITE);
 
         // 2. Draw bodies (and labels)
-        for (size_t i = 0; i < sim_world.bodies.size(); ++i)
+        for (size_t i = 0; i < sim_world.size(); ++i)
         {
-            const auto &b = sim_world.bodies[i];
-            vec2 screen_pos = WorldToScreen(b.position);
-            int screen_radius = (int)(b.radius * world_scale);
+            vec2 pos(sim_world.position_x[i], sim_world.position_y[i]);
+            int screen_radius = (int)(sim_world.radius[i] * world_scale);
+            vec2 screen_pos = WorldToScreen(pos);
 
             // Use fixed color per-body type: static=RED, dynamic=BLUE
-            Color draw_color = (b.inv_mass == 0.0f) ? RED : BLUE;
+            Color draw_color = (sim_world.inv_mass[i] == 0.0f) ? RED : BLUE;
 
             // Draw main circle
             DrawCircle((int)screen_pos.x, (int)screen_pos.y, screen_radius, draw_color);
@@ -455,7 +565,8 @@ int main()
             DrawCircleLines((int)screen_pos.x, (int)screen_pos.y, screen_radius, BLACK);
 
             // Label with id and mass above the body
-            DrawText(TextFormat("#%d m:%.2f", (int)i, b.mass), (int)screen_pos.x - screen_radius, (int)screen_pos.y - screen_radius - 18, 12, WHITE);
+            float mass = (i < sim_world.mass.size()) ? sim_world.mass[i] : 0.0f;
+            DrawText(TextFormat("#%d m:%.2f", (int)i, mass), (int)screen_pos.x - screen_radius, (int)screen_pos.y - screen_radius - 18, 12, WHITE);
 
             // Highlight if selected
             if ((int)i == selected_body_index)
@@ -472,33 +583,51 @@ int main()
             DrawText("Click a body to select it. Keys: M/B mass +/-, R/T restitution +/-, S/A radius +/-", 10, screen_height - 24, 14, LIGHTGRAY);
         }
 
-        // 3. Draw FPS
-        DrawFPS(10, 10);
-        DrawText("Fixed DT: 1/60s", 10, 35, 20, WHITE);
-        // Show pause/snapshot state
-        // (replicating the paused variable by querying the key state here is not possible, we assume the key toggles)
-        // Draw quick help
-        DrawText("P: Pause/Resume  N: Step (when paused)  O: Save snapshot  L: Load snapshot", 10, 60, 14, LIGHTGRAY);
+        // 3. Draw stacked HUD (avoid overlaps)
+        const int hud_x = 10;
+        int hud_y = 10;
+        const int hud_line_h = 20;
+        // Primary HUD lines
+        DrawFPS(hud_x, hud_y);
+        hud_y += hud_line_h;
+        DrawText("Fixed DT: 1/60s", hud_x, hud_y, 16, WHITE);
+        hud_y += hud_line_h;
+        DrawText(TextFormat("Gravity: %.2fm/s^2 (use , . to +/-)", sim_world.gravity_y * gravity_scale), hud_x, hud_y, 16, WHITE);
+        hud_y += hud_line_h;
+        DrawText(TextFormat("Global damping: %.4f (use [ ] to +/-)", sim_world.global_damping), hud_x, hud_y, 16, WHITE);
+        hud_y += hud_line_h;
+        DrawText("P: Pause/Resume  N: Step (when paused)", hud_x, hud_y, 14, LIGHTGRAY);
+        hud_y += hud_line_h;
+        DrawText("O: Save snapshot  L: Load snapshot  SPACE: Spawn", hud_x, hud_y, 14, LIGHTGRAY);
+        hud_y += hud_line_h;
 
         // 4. Properties panel (if selected)
-        if (selected_body_index >= 0 && selected_body_index < (int)sim_world.bodies.size())
+        if (selected_body_index >= 0 && selected_body_index < (int)sim_world.size())
         {
-            const body &sel = sim_world.bodies[selected_body_index];
+            // Read properties from SoA arrays
+            float sel_mass = (selected_body_index < sim_world.mass.size()) ? sim_world.mass[selected_body_index] : 0.0f;
+            float sel_inv_mass = (selected_body_index < sim_world.inv_mass.size()) ? sim_world.inv_mass[selected_body_index] : 0.0f;
+            float sel_radius = (selected_body_index < sim_world.radius.size()) ? sim_world.radius[selected_body_index] : 0.0f;
+            // Prefer SoA values.
+            float sel_restitution = sim_world.get_restitution(selected_body_index);
+            float sel_damping = sim_world.get_damping(selected_body_index);
+            float sel_friction = sim_world.get_friction(selected_body_index);
             int panel_x = screen_width - 260;
             int panel_y = 10;
             DrawRectangle(panel_x - 10, panel_y - 10, 250, 140, Fade(BLACK, 0.6f));
             DrawText(TextFormat("Selected: %d", selected_body_index), panel_x, panel_y, 18, YELLOW);
-            DrawText(TextFormat("Mass: %.2f", sel.mass), panel_x, panel_y + 24, 16, WHITE);
-            DrawText(TextFormat("InvMass: %.4f", sel.inv_mass), panel_x, panel_y + 44, 16, WHITE);
-            DrawText(TextFormat("Radius: %.2f m", sel.radius), panel_x, panel_y + 64, 16, WHITE);
-            DrawText(TextFormat("Restitution: %.2f", sel.restitution), panel_x, panel_y + 84, 16, WHITE);
-            DrawText(TextFormat("Damping: %.2f", sel.damping), panel_x, panel_y + 104, 14, WHITE);
-            DrawText(TextFormat("Friction: %.2f", sel.friction), panel_x, panel_y + 124, 14, WHITE);
+            DrawText(TextFormat("Mass: %.2f", sel_mass), panel_x, panel_y + 24, 16, WHITE);
+            DrawText(TextFormat("InvMass: %.4f", sel_inv_mass), panel_x, panel_y + 44, 16, WHITE);
+            DrawText(TextFormat("Radius: %.2f m", sel_radius), panel_x, panel_y + 64, 16, WHITE);
+            DrawText(TextFormat("Restitution: %.2f", sel_restitution), panel_x, panel_y + 84, 16, WHITE);
+            DrawText(TextFormat("Damping: %.2f", sel_damping), panel_x, panel_y + 104, 14, WHITE);
+            DrawText(TextFormat("Friction: %.2f", sel_friction), panel_x, panel_y + 124, 14, WHITE);
             DrawText("Keys: M/B mass +/-, R/T restitution +/-, S/A radius +/-, Y/U damping, G/H friction", panel_x, panel_y + 144, 10, LIGHTGRAY);
         }
 
-        // Show spawn params quick info
-        DrawText(TextFormat("Spawn - mass:%.2f r:%.2f rest:%.2f damp:%.2f fric:%.2f (SPACE to spawn)", spawn_mass, spawn_radius, spawn_restitution, spawn_damping, spawn_friction), 10, 80, 12, LIGHTGRAY);
+        // Show spawn params quick info (moved down to avoid overlap with HUD)
+        int spawn_info_y = hud_y + 6;
+        DrawText(TextFormat("Spawn - mass:%.2f r:%.2f rest:%.2f damp:%.2f fric:%.2f (SPACE to spawn)", spawn_mass, spawn_radius, spawn_restitution, spawn_damping, spawn_friction), 10, spawn_info_y, 12, LIGHTGRAY);
         // spawn color removed
 
         EndDrawing();
