@@ -26,8 +26,13 @@ void test_world_constructor()
     std::cout << "\n--- TEST: World Constructor ---\n";
     std::vector<body> bodies;
     bodies.push_back(create_body(0, 0, 0, 0, 1, 1));
-    world w(bodies, vec2(0, -9.8f), 0.016f);
-    std::cout << "World bodies size: " << w.bodies.size() << "\n";
+    world w;
+    w.gravity_x = 0.0f;
+    w.gravity_y = -9.8f;
+    w.delta_time = 0.016f;
+    for (auto &b : bodies)
+        w.add_body(b);
+    std::cout << "World bodies size: " << w.size() << "\n";
 }
 
 void test_world_constructors()

@@ -17,7 +17,12 @@ void test_verlet_movement_simple()
     body B = create_body(0, 0, 0, 0, 0, 1.0f, 0.8f);
 
     std::vector<body> bodies = {A, B};
-    world w(bodies, vec2(0, -9.8f), 0.016f);
+    world w;
+    w.gravity_x = 0.0f;
+    w.gravity_y = -9.8f;
+    w.delta_time = 0.016f;
+    for (auto &b : bodies)
+        w.add_body(b);
 
     // Note: 'previous_position' initialization is now handled in the body constructor.
 
@@ -30,7 +35,7 @@ void test_verlet_movement_simple()
         manager.update(w, w.delta_time);
 
     // The final position Y must be less than 5 (due to gravity)
-    std::cout << "Body final position Y after 5 steps: " << w.bodies[0].position.y << " (Should be < 5)\n";
+    std::cout << "Body final position Y after 5 steps: " << w.position_y[0] << " (Should be < 5)\n";
 }
 
 // Since main_test.cpp no longer calls a wrapper, this function is the replacement.

@@ -16,10 +16,19 @@ void test_basic_simulation_step()
 
     // Using a known, controlled delta_time
     float controlled_dt = 0.016f;
-    world w(bodies, vec2(0, -9.8f), controlled_dt);
+    world w;
+    w.gravity_x = 0.0f;
+    w.gravity_y = -9.8f;
+    w.delta_time = controlled_dt;
+    for (auto &b : bodies)
+        w.add_body(b);
 
     // This is vital for Verlet: previous_position must be set at the start!
-    w.bodies[0].previous_position = w.bodies[0].position;
+    if (w.num_bodies() > 0)
+    {
+        w.previous_position_x[0] = w.position_x[0];
+        w.previous_position_y[0] = w.position_y[0];
+    }
 
     systemManager manager;
     manager.addSystem(std::make_unique<movementSystem>());
@@ -28,7 +37,7 @@ void test_basic_simulation_step()
     manager.update(w, w.delta_time);
 
     // Expected value after one step: Y ≈ 9.99875.
-    std::cout << "First body's position Y after 1 step: " << w.bodies[0].position.y << "\n";
+    std::cout << "First body's position Y after 1 step: " << w.position_y[0] << "\n";
 }
 
 void test_world_random_initialization()

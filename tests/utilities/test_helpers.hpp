@@ -27,5 +27,11 @@ inline world create_random_world(int num_bodies, const vec2 &gravedad, float dt)
 {
     std::vector<body> cuerpos;
     cuerpos.push_back(create_body(0.0f, 10.0f, 0.0f, 0.0f, 1.0f, 0.5f));
-    return world(cuerpos, gravedad, dt);
+    world w;
+    w.gravity_x = gravedad.x;
+    w.gravity_y = gravedad.y;
+    w.delta_time = dt;
+    for (auto &b : cuerpos)
+        w.add_body(b);
+    return w;
 }
