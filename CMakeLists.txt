@@ -2,15 +2,7 @@ cmake_minimum_required(VERSION 3.10)
 
 # Define the main project and enable C++
 # Keep CUDA commented out for now; we'll uncomment in the next step
-option(ENABLE_CUDA "Enable CUDA support" OFF)
-
-if(ENABLE_CUDA)
-    project(CudaPlayground LANGUAGES CXX CUDA)
-    set(CMAKE_CUDA_STANDARD 17)
-    set(CMAKE_CUDA_STANDARD_REQUIRED ON)
-else()
-    project(CudaPlayground LANGUAGES CXX)
-endif()
+project(CudaPlayground LANGUAGES CXX) 
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -38,29 +30,6 @@ set(SOURCE_FILES
 # ----------------------------------------------------------------
 add_executable(CudaPlayground ${SOURCE_FILES})
 
-# Headless benchmark target (does not link raylib)
-set(BENCH_SOURCES
-    tools/benchmark.cpp
-    src/math/vec2.cpp
-    src/physics/body.cpp
-    src/physics/world.cpp
-    src/sim/movementSystem.cpp
-    src/sim/collisionSystem.cpp
-    src/sim/systemManager.cpp
-)
-
-add_executable(benchmark ${BENCH_SOURCES})
-target_include_directories(benchmark PUBLIC ${CMAKE_SOURCE_DIR}/include)
-
-if(ENABLE_CUDA)
-    message(STATUS "CUDA enabled: adding CUDA integrator sources")
-    target_sources(CudaPlayground PRIVATE src/sim/movementSystemCUDA.cpp src/cuda/movement_kernel.cu)
-    target_sources(benchmark PRIVATE src/sim/movementSystemCUDA.cpp src/cuda/movement_kernel.cu)
-    # Ensure CUDA flags are used
-    set_target_properties(CudaPlayground PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
-    set_target_properties(benchmark PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
-endif()
-
 # ----------------------------------------------------------------
 # 4. INCLUDE DIRECTORIES AND LINK LIBRARIES
 # ----------------------------------------------------------------
@@ -84,6 +53,29 @@ target_include_directories(CudaPlayground PUBLIC ${raylib_INCLUDE_DIRS})
 # 5. TESTS CONFIGURATION
 # ----------------------------------------------------------------
 add_subdirectory(tests)
+
+# ----------------------------------------------------------------
+# Benchmark target (headless, no Raylib)
+# ----------------------------------------------------------------
+# Benchmark target (headless, no Raylib) - optional
+# ----------------------------------------------------------------
+option(BUILD_BENCHMARK "Build headless benchmark executable" ON)
+if(BUILD_BENCHMARK)
+    add_executable(benchmark
+        tools/benchmark.cpp
+        src/math/vec2.cpp
+        src/physics/body.cpp
+        src/physics/world.cpp
+        src/sim/movementSystem.cpp
+        src/sim/collisionSystem.cpp
+        src/sim/systemManager.cpp
+    )
+
+    target_include_directories(benchmark PUBLIC ${CMAKE_SOURCE_DIR}/include)
+
+    # Do not link Raylib for benchmark (headless)
+    target_link_libraries(benchmark PUBLIC m)
+endif()
 
 
 # ----------------------------------------------------------------
