@@ -33,16 +33,19 @@ private:
 
     // --- COLLISION DETECTION PHASES ---
     // Broad Phase: Generates a list of pairs of nearby bodies (candidates).
-    std::vector<std::pair<body *, body *>> broad_phase_generate_pairs(world &simulation_world);
+    // Returns pairs of particle indices (SoA-friendly)
+    std::vector<std::pair<int, int>> broad_phase_generate_pairs(world &simulation_world);
 
     // Narrow Phase: Iterates over candidate pairs to check and resolve exact collisions.
     void narrow_phase_check_and_resolve(world &simulation_world);
 
     // Circle-Circle Check: Uses squared distances for efficiency.
-    bool check_for_overlap(body *body_A, body *body_B, world &simulation_world);
+    // Index-based variant for SoA arrays
+    bool check_for_overlap(int idxA, int idxB, world &simulation_world);
 
     // Resolution: Applies positional correction and velocity impulse.
-    void resolve_contact_with_impulse(body *body_A, body *body_B, world &simulation_world);
+    // Index-based variant for SoA arrays
+    void resolve_contact_with_impulse(int idxA, int idxB, world &simulation_world);
 
     // World Boundary Collisions (floor, walls).
     void solve_boundary_contacts(world &simulation_world);
