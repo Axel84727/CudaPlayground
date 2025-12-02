@@ -1,18 +1,19 @@
-# CudaPlayground
+# Physix2D
 
 A 2D physics engine built from scratch to learn C++ and CUDA.
 
 ## Goals
 
-- Learn modern C++ through hands-on project
-- Understand physics simulation fundamentals
-- Master CUDA parallel programming
-- Build something that scales to millions of particles
+- Learn modern C++ through a hands-on project  
+- Understand physics simulation fundamentals (collision, impulse resolution, damping, restitution)  
+- Build a modular and extensible engine  
+- Simulate many interacting bodies efficiently 
 
 ## Current Status
 
-Work in Progress - Phase 5
+Work finished
 
+this was the roadmap that I use to create this (the origninal plan was to add cuda but I do not have a Nvidia GPU)
 See [detailed roadmap](docs/roadmap.md) for full development plan.
 
 ## Building
