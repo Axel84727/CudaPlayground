@@ -1,6 +1,6 @@
 # Physix2D
 
-A 2D physics engine built from scratch to learn C++ and CUDA.
+A 2D physics engine built from scratch to learn C++.
 
 ## Goals
 
